@@ -1,0 +1,43 @@
+{
+  "name": "dsh-mobile-plugin",
+  "version": "0.1.0",
+  "description": "Native mobile access to DeepSeek Harness over encrypted peer-to-peer connections",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "exports": { ".": "./dist/index.js", "./client": "./dist/client.js", "./package.json": "./package.json" },
+  "files": ["dist", "cordis.patch.yml", "protocol", "docs", "licenses", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "repository": { "type": "git", "url": "git+https://github.com/GongShichen/dsh-mobile-plugin.git" },
+  "engines": { "node": ">=24.9.0", "dsh": "0.2.2-alpha.2" },
+  "packageManager": "pnpm@11.28.5",
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-sidebar", "@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-client-ui-primitives"] }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:iroh": "node --import tsx --test tests/iroh-runtime.test.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "prepack": "pnpm build"
+  },
+  "peerDependencies": { "@deepseek-ai/cordis": "4.0.6-alpha.1" },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.6-alpha.1",
+    "@number0/iroh": "1.2.0",
+    "@napi-rs/keyring": "2.1.2",
+    "google-auth-library": "^10.0.0",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.6-alpha.1",
+    "@types/node": "^25.0.0",
+    "@types/react": "^18.3.0",
+    "@types/qrcode": "^1.5.5",
+    "esbuild": "^0.25.0",
+    "react": "18.3.1",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.3"
+  }
+}

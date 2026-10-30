@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+.DS_Store
+.env*
+!.env.example
+*.p8
+*service-account*.json
+.local/
+*.sqlite*
