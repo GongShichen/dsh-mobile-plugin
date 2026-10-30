@@ -1,4 +1,4 @@
-# DSH Mobile protocol v1
+# Harness Link protocol v1
 
 ALPN: `dsh-mobile/1`. All peers authenticate using their persistent iroh EndpointId. A desktop checks its device allowlist before accepting business requests. A new connection may only call `pairing.request`, `pairing.status`, and `hello` until desktop approval. No DSH token or model/provider credential crosses this protocol.
 
@@ -34,8 +34,9 @@ The following fixed mobile methods map to existing DSH APIs through the bridge; 
 * `sessions.archive`, `sessions.unarchive`, `sessions.pin`, `sessions.unpin` map to workspace APIs.
 * `workspaces.list`, `workspaces.create`, `workspaces.rename`, `models.list`, `models.select`.
 * `files.list`, `files.stat`, `files.read`, `files.download`.
+* `feedback.list`, `feedback.put`, `feedback.delete` map to the official `messageFeedback` service. Mutations retain `ifVersion` compare-and-set semantics; a conflict is reported instead of overwriting another device.
 * `jobs.list`, `jobs.kill`, `interactions.reply`, `questions.answer`.
-* `subscribe` takes `{ topic, request }` and returns `{ subscriptionId, generation }`; `unsubscribe` takes `{subscriptionId}`. Topics: `sessions`, `session`, `sessionState`, `sessionControl`, `workspaces`, `interactions`, `jobs`, `job`, `files`.
+* `subscribe` takes `{ topic, request }` and returns `{ subscriptionId, generation }`; `unsubscribe` takes `{subscriptionId}`. Topics: `sessions`, `session`, `sessionState`, `sessionControl`, `workspaces`, `interactions`, `jobs`, `job`, `files`, `feedback`. The feedback topic opens its event listener before reading the authoritative list, and emits a new `{type:"baseline",value:{items:[...]}}` after every feedback change.
 * `attachments.begin`, `attachments.status`, `attachments.finalize`, `attachments.cancel`.
 * `push.describe`, `push.configuration`, `push.register`, `push.unregister`, `push.received`. `push.describe` sends public application metadata `{platform,applicationId,teamId?,environment?}` before provider setup so the desktop can prefill its import wizard. Metadata is an informational hint, not proof of signing-key permission.
 
@@ -44,3 +45,9 @@ Except mobile operation ids, domain request fields follow the pinned DSH DTOs. `
 Secrets may only be imported through the local desktop configuration surface. `push.configuration` returns public FirebaseOptions only. All push registrations bind to the current authenticated peer, never a caller-supplied device id.
 
 `push.describe` accepts `{platform,applicationId,teamId?,environment?}` from an authenticated device before push credentials are configured. These are advisory values for the local setup form, never authorization claims. After the desktop imports push configuration it sends `{ "v": 1, "type": "notice", "name": "push-configuration-changed" }` on the authorized event stream. This frame has no subscription id; clients handle it separately and asynchronously fetch `push.configuration`, then register their OS token. No credentials or private configuration appear in the notice.
+
+## Desktop presentation data
+
+Session follow snapshots, completed `turn/end` frames, and `sessions.events` history results may include `presentation: { turns: [...] }`. Each turn carries the real `endSeq`, closing-message identity/time/text, first assistant sequence, completion status, optional desktop-computed duration and exact `tokenUsage`, plus the same branch boundary availability as the pinned Web UI. The desktop uses the pinned official Web token accounting algorithm. Incomplete history or unproven usage omits totals; clients must not manufacture or sum a second total.
+
+Mobile clients keep these business snapshots and event rows in memory. Only pairing identity, paired-computer configuration and notification setup persist on the phone. Reopening the App fetches desktop state again. Trace UI reads these same official events and pages history on demand.

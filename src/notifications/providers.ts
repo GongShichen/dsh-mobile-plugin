@@ -48,7 +48,7 @@ export class PushProviders implements NotificationSender {
       session.on('goaway', () => { session?.close(); this.sessions.delete(sessionKey) })
       this.sessions.set(sessionKey, session)
     }
-    const payload = JSON.stringify({ aps: { alert: { title: 'DSH Mobile', body: bodyText[item.kind] }, sound: 'default' }, eventId: item.eventId, ...(item.hostId ? { hostId: item.hostId } : {}), ...(item.sessionId ? { sessionId: item.sessionId } : {}), kind: item.kind })
+    const payload = JSON.stringify({ aps: { alert: { title: 'Harness Link', body: bodyText[item.kind] }, sound: 'default' }, eventId: item.eventId, ...(item.hostId ? { hostId: item.hostId } : {}), ...(item.sessionId ? { sessionId: item.sessionId } : {}), kind: item.kind })
     return await new Promise<DeliveryResult>((resolve) => {
       let status = 0, response = '', retry: string | undefined
       let settled = false
@@ -86,7 +86,7 @@ export class PushProviders implements NotificationSender {
     const response = await this.fetcher(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(config.projectId)}/messages:send`, {
       method: 'POST', redirect: 'error', signal: AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(15000)]),
       headers: { authorization: `Bearer ${auth.value}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ message: { token, notification: { title: 'DSH Mobile', body: bodyText[item.kind] }, data: { eventId: item.eventId, kind: item.kind, ...(item.hostId ? { hostId: item.hostId } : {}), ...(item.sessionId ? { sessionId: item.sessionId } : {}) }, android: { priority: 'high', ttl: `${Math.max(0, Math.floor((item.expiresAt - this.now()) / 1000))}s`, restricted_package_name: config.packageName } } }),
+      body: JSON.stringify({ message: { token, notification: { title: 'Harness Link', body: bodyText[item.kind] }, data: { eventId: item.eventId, kind: item.kind, ...(item.hostId ? { hostId: item.hostId } : {}), ...(item.sessionId ? { sessionId: item.sessionId } : {}) }, android: { priority: 'high', ttl: `${Math.max(0, Math.floor((item.expiresAt - this.now()) / 1000))}s`, restricted_package_name: config.packageName } } }),
     })
     if (response.ok) return { accepted: true }
     if (response.status === 401) this.auth.delete(config.secretRef)

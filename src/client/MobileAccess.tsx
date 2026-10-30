@@ -51,7 +51,7 @@ export function MobileAccessPage({ call }: { call: OwnerCall }) {
   const validInvitation = invitation && invitation.expiresAt > Date.now()
   useEffect(() => {
     let active = true; setQr('')
-    if (validInvitation) void QRCode.toDataURL(invitation.uri, { width: 232, margin: 2, color: { dark: '#182230', light: '#ffffff' } }).then(value => { if (active) setQr(value) }).catch(() => { if (active) setError('二维码生成失败，请重新生成。') })
+    if (validInvitation) void QRCode.toDataURL(invitation.uri, { width: 928, margin: 4, color: { dark: '#182230', light: '#ffffff' } }).then(value => { if (active) setQr(value) }).catch(() => { if (active) setError('二维码生成失败，请重新生成。') })
     return () => { active = false }
   }, [invitation?.uri, validInvitation])
   async function run(method: string, params: unknown = {}) {
@@ -78,7 +78,7 @@ export function MobileAccessPage({ call }: { call: OwnerCall }) {
     {!state ? <div className="dm-loading" role="status">正在读取电脑状态…</div> : view === 'connection' ? <>
       <section className="dm-pairing" aria-label="手机配对">
         <div className="dm-pairing-copy">
-          <span className="dm-eyebrow">DSH MOBILE</span>
+          <span className="dm-eyebrow">HARNESS LINK</span>
           <h2>从手机，继续你的工作</h2>
           <p className="dm-muted">同一份会话与工作区。一次配对，随时接上电脑。</p>
           <ol className="dm-steps"><li><span>1</span><div><strong>打开手机 App</strong><p>进入设备页，选择扫码连接</p></div></li><li><span>2</span><div><strong>扫描配对二维码</strong><p>连接到这台电脑</p></div></li><li><span>3</span><div><strong>在电脑上确认</strong><p>确认后，手机即可继续对话</p></div></li></ol>

@@ -10,7 +10,7 @@ import { FrameWriter, integerField, object, readFrame, stringField } from './fra
 
 export const MOBILE_ALPN = 'dsh-mobile/1'
 const ALPN_BYTES = Array.from(Buffer.from(MOBILE_ALPN))
-const MUTATIONS = new Set(['sessions.create', 'sessions.rename', 'sessions.fork', 'sessions.prompt', 'sessions.cancel', 'sessions.updateQueue', 'sessions.archive', 'sessions.unarchive', 'sessions.pin', 'sessions.unpin', 'workspaces.create', 'workspaces.rename', 'models.select', 'jobs.kill', 'interactions.reply', 'questions.answer'])
+const MUTATIONS = new Set(['sessions.create', 'sessions.rename', 'sessions.fork', 'sessions.prompt', 'sessions.cancel', 'sessions.updateQueue', 'sessions.archive', 'sessions.unarchive', 'sessions.pin', 'sessions.unpin', 'workspaces.create', 'workspaces.rename', 'models.select', 'jobs.kill', 'interactions.reply', 'questions.answer', 'feedback.put', 'feedback.delete'])
 
 export interface BridgePort {
   createPeer(deviceId: string): MobilePeer
@@ -49,6 +49,7 @@ export interface RuntimeOptions {
   endpointFactory?: (secret: Uint8Array) => Promise<Endpoint>
   onStateChange?: () => void
   onError?: (code: string) => void
+  onDiagnostic?: (event: string, detail: string) => void
 }
 
 interface ConnectedDevice {
@@ -135,6 +136,7 @@ export class MobileRuntime {
   createInvitation() {
     if (!this.endpoint) throw new MobileError('NOT_RUNNING', 'Mobile access is not running')
     const invitation = this.pairing.create(this.endpoint.id().toString(), EndpointTicket.fromAddr(this.endpoint.addr()).toString(), this.options.hostName)
+    this.diagnostic("pairing.invitation.created", `ttlSeconds=${Math.round((invitation.invitation.expiresAt - Date.now()) / 1000)}`)
     this.changed()
     return { uri: invitation.url, expiresAt: invitation.invitation.expiresAt }
   }
@@ -147,7 +149,7 @@ export class MobileRuntime {
       catch { await this.closeState(state, 'Event stream unavailable') }
     }))
   }
-  approve(requestId: string): PairedDevice { const device = this.pairing.approve(requestId); this.changed(); return device }
+  approve(requestId: string): PairedDevice { const device = this.pairing.approve(requestId); this.diagnostic("pairing.approved", `platform=${device.platform}`); this.changed(); return device }
   reject(requestId: string): void { this.pairing.reject(requestId); this.changed() }
 
   async revoke(deviceId: string): Promise<void> {
@@ -161,6 +163,7 @@ export class MobileRuntime {
   }
 
   private changed(): void { this.options.onStateChange?.() }
+  private diagnostic(event: string, detail = ""): void { try { this.options.onDiagnostic?.(event, detail) } catch { /* Diagnostics must not fail a connection. */ } }
   private report(error: unknown): void { this.options.onError?.(publicError(error).code) }
 
   private async acceptLoop(endpoint: Endpoint): Promise<void> {
@@ -182,12 +185,15 @@ export class MobileRuntime {
   private async serve(connection: Connection): Promise<void> {
     const state: ConnectedDevice = { id: randomUUID(), deviceId: connection.remoteId().toString(), connection, lifetime: new AbortController(), connectedAt: Date.now(), path: 'connecting', rpcSeen: false, subscriptions: new Map(), tasks: new Set(), background: new Set() }
     this.connected.set(state.id, state)
+    this.diagnostic("connection.accepted", `connection=${state.id.slice(0, 8)}`)
     connection.setMaxConcurrentBiStreams(8n)
     connection.setMaxConcurrentUniStreams(0n)
     connection.setReceiveWindow(4n * 1024n * 1024n)
     const updatePaths = (paths: PathSnapshot[]) => {
       const selected = paths.find(path => path.isSelected)
-      state.path = selected?.isIp ? 'direct' : selected?.isRelay ? 'relay' : 'connecting'
+      const nextPath = selected?.isIp ? 'direct' : selected?.isRelay ? 'relay' : 'connecting'
+      if (nextPath !== state.path) this.diagnostic('connection.path', `connection=${state.id.slice(0, 8)} path=${nextPath}`)
+      state.path = nextPath
       this.changed()
     }
     updatePaths(connection.paths())
@@ -214,6 +220,7 @@ export class MobileRuntime {
 
   private async closeState(state: ConnectedDevice, reason: string): Promise<void> {
     if (state.closeTask) return state.closeTask
+    this.diagnostic("connection.closed", `connection=${state.id.slice(0, 8)} reason=${reason}`)
     state.lifetime.abort()
     state.connection.close(0n, Array.from(Buffer.from(reason)))
     for (const controller of state.subscriptions.values()) controller.abort()
@@ -269,7 +276,7 @@ export class MobileRuntime {
             if (raw.v !== 1) throw new MobileError('PROTOCOL_MISMATCH', 'Unsupported protocol version')
             const result = await this.dispatch(state, stringField(raw, 'method', 128), object(raw.params ?? {}))
             await writer.write({ v: 1, id, result: result ?? null })
-          } catch (error) { await writer.write({ v: 1, id, error: publicError(error) }) }
+          } catch (error) { this.diagnostic("rpc.failed", `code=${publicError(error).code}`); await writer.write({ v: 1, id, error: publicError(error) }) }
         }
       } finally { await this.closeState(state, 'Control stream closed') }
       return
@@ -299,15 +306,17 @@ export class MobileRuntime {
   }
 
   private async dispatch(state: ConnectedDevice, method: string, params: Record<string, unknown>): Promise<unknown> {
+    if (method !== "pairing.status") this.diagnostic("rpc.received", `connection=${state.id.slice(0, 8)} method=${/^[a-zA-Z]+\.[a-zA-Z]+$/.test(method) || method === "hello" || method === "subscribe" || method === "unsubscribe" ? method : "unsupported"}`)
     if (method === 'hello') {
       const authorized = this.pairing.device(state.deviceId) !== undefined
       if (authorized) await this.authorize(state)
-      return { protocolVersion: 1, authorized, hostId: this.endpoint?.id().toString(), hostInstanceId: this.instanceId, hostName: this.options.hostName, dshVersion: this.options.dshVersion, adapterVersion: this.options.adapterVersion ?? '0.1.0', capabilities: authorized ? ['sessions', 'workspaces', 'models', 'files', 'attachments', 'interactions', 'jobs', 'push'] : [] }
+      return { protocolVersion: 1, authorized, hostId: this.endpoint?.id().toString(), hostInstanceId: this.instanceId, hostName: this.options.hostName, dshVersion: this.options.dshVersion, adapterVersion: this.options.adapterVersion ?? '0.1.0', capabilities: authorized ? ['sessions', 'workspaces', 'models', 'files', 'attachments', 'interactions', 'jobs', 'push', 'feedback'] : [] }
     }
     if (method === 'pairing.request') {
       const platform = stringField(params, 'platform')
       if (platform !== 'android' && platform !== 'ios') throw new MobileError('INVALID_ARGUMENT', 'Unsupported mobile platform')
       const result = this.pairing.request(state.deviceId, { pairingId: stringField(params, 'pairingId'), secret: stringField(params, 'secret'), name: stringField(params, 'name', 100), platform })
+      this.diagnostic("pairing.request.received", `platform=${platform}`)
       this.changed()
       return result
     }
@@ -335,6 +344,7 @@ export class MobileRuntime {
           if (!lifetime.aborted) await state.events!.write({ v: 1, type: 'event', subscriptionId, generation, event: { type: 'end' } })
         } catch (error) {
           if (!lifetime.aborted) {
+            this.diagnostic("subscription.failed", `topic=${topic} code=${publicError(error).code}`)
             try { await state.events!.write({ v: 1, type: 'event', subscriptionId, generation, event: { type: 'error', error: publicError(error) } }) }
             catch { await this.closeState(state, 'Event stream unavailable') }
           }

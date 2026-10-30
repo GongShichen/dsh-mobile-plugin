@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { BridgeError, paramsOf, record, textField } from './errors.ts'
 import type { DshHostServices, MobilePeer, Params, PeerScope, SharedFetch } from './types.ts'
+import { PresentationTracker } from '../sync/presentation.js'
 import { firstFrame, sessionListStream } from '../sync/streams.ts'
 
 export type { DshHostServices, MobilePeer, PeerScope, Params } from './types.ts'
@@ -15,6 +16,14 @@ const emptyUplink = { async *[Symbol.asyncIterator](): AsyncGenerator<unknown> {
 /** Fixed mobile vocabulary over the pinned Gateway; caller authorization belongs to transport. */
 export class DshBridge<S extends PeerScope = PeerScope> {
   private readonly peers = new Set<MobilePeer<S>>()
+  private readonly presentations = new Map<MobilePeer<S>, Map<string, PresentationTracker>>()
+  private presentation(peer: MobilePeer<S>, sessionId: string): PresentationTracker {
+    let sessions = this.presentations.get(peer)
+    if (!sessions) { sessions = new Map(); this.presentations.set(peer, sessions) }
+    let tracker = sessions.get(sessionId)
+    if (!tracker) { if (sessions.size >= 8) sessions.delete(sessions.keys().next().value!); tracker = new PresentationTracker(); sessions.set(sessionId, tracker) }
+    return tracker
+  }
   private readonly sharedFetch: SharedFetch<S>
 
   constructor(private readonly host: DshHostServices<S>) {
@@ -30,6 +39,7 @@ export class DshBridge<S extends PeerScope = PeerScope> {
 
   async disposePeer(peer: MobilePeer<S>): Promise<void> {
     this.peers.delete(peer)
+    this.presentations.delete(peer)
     await peer.scope.dispose()
   }
 
@@ -61,10 +71,25 @@ export class DshBridge<S extends PeerScope = PeerScope> {
       if (SESSION_METHODS.has(action)) {
         if (action === 'prompt') textField(request.requestId, 'requestId')
         // `_request` is the actual named parameter of session/list in the pinned build.
-        return this.call(peer, 'session', action, { [action === 'list' ? '_request' : 'request']: request }, signal)
+        const value = await this.call(peer, 'session', action, { [action === 'list' ? '_request' : 'request']: request }, signal)
+        const historyId = typeof request.sessionId === 'string' ? request.sessionId : record(request.address) && typeof request.address.sessionId === 'string' ? request.address.sessionId : undefined
+        if (action === 'events' && historyId !== undefined && record(value)) {
+          const tracker = this.presentation(peer, historyId); tracker.ingest(value.records)
+          return { ...value, presentation: tracker.snapshot() }
+        }
+        return value
       }
       const workspaceMethod = Object.hasOwn(ARCHIVE_METHODS, action) ? ARCHIVE_METHODS[action] : undefined
       if (workspaceMethod !== undefined) return this.call(peer, 'workspace', workspaceMethod, { request }, signal)
+    }
+    if (domain === 'feedback' && action !== undefined && ['list', 'put', 'delete'].includes(action)) {
+      const result = await this.call(peer, 'messageFeedback', action, { request }, signal)
+      if (!record(result) || result.ok !== true) {
+        const error = record(result) && record(result.error) ? result.error : {}
+        const code = typeof error.code === 'string' ? error.code : 'unavailable'
+        throw new BridgeError(`feedback/${code}`, code === 'version-conflict' ? '评价已在另一端更新，请重试' : `无法更新评价：${code}`)
+      }
+      return result.value
     }
     if (method === 'workspaces.list') {
       const controller = new AbortController()
@@ -153,7 +178,32 @@ export class DshBridge<S extends PeerScope = PeerScope> {
           if ('afterSeq' in request || 'resumeCursor' in request) throw new BridgeError('mobile/invalid-params', 'session/follow does not accept an afterSeq or resumeCursor')
           const { sessionId, ...fields } = request
           const address = fields.address ?? { kind: 'session', sessionId: textField(sessionId, 'sessionId') }
-          yield* await this.stream(peer, 'session', 'follow', { request: { activate: true, assistantStream: true, ...fields, address } }, lifetime)
+          const id = record(address) && typeof address.sessionId === 'string' ? address.sessionId : typeof sessionId === 'string' ? sessionId : undefined
+          const tracker = id === undefined ? undefined : this.presentation(peer, id)
+          for await (const frame of await this.stream(peer, 'session', 'follow', { request: { activate: true, assistantStream: true, ...fields, address } }, lifetime)) {
+            if (tracker && record(frame) && frame.type === 'snapshot') {
+              tracker.baseline(frame); yield { ...frame, presentation: tracker.snapshot() }
+            } else if (tracker && record(frame) && frame.type === 'event') {
+              tracker.append(frame.event)
+              yield record(frame.event) && frame.event.type === 'turn/end' ? { ...frame, presentation: tracker.snapshot() } : frame
+            } else yield frame
+          }
+          break
+        }
+        case 'feedback': {
+          const sessionId = textField(request.sessionId, 'sessionId')
+          // Subscribe first. A queued mutation triggers another authoritative read instead of
+          // replaying an older patch over a more recent list response.
+          const source = await this.stream(peer, 'session', 'follow', { request: {
+            address: { kind: 'session', sessionId }, activate: false,
+          } }, lifetime)
+          for await (const frame of source) {
+            if (!record(frame)) continue
+            const event = record(frame.event) ? frame.event : undefined
+            if (frame.type === 'snapshot' || (frame.type === 'event' && typeof event?.type === 'string' && event.type.startsWith('feedback/message-'))) {
+              yield { type: 'baseline', value: await this.invoke(peer, 'feedback.list', { sessionId }, lifetime) }
+            }
+          }
           break
         }
         case 'sessionState': yield* await this.stream(peer, 'session', 'observeState', { request }, lifetime); break

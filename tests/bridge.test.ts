@@ -10,6 +10,7 @@ function fixture() {
   const fetched: Request[] = []
   const envelopes: unknown[] = []
   let eventClosed = false
+  let invokeResult = (_request: GatewayRequest<PeerScope>): unknown => ({ items: [] })
   const host: DshHostServices = {
     connection: {
       createPeer() { const controller = new AbortController(); return { signal: controller.signal, async dispose() { controller.abort() } } },
@@ -21,7 +22,7 @@ function fixture() {
       } } },
     },
     typertGateway: {
-      async invoke(request) { calls.push(request); return { items: [] } },
+      async invoke(request) { calls.push(request); return invokeResult(request) },
       async stream(request) { calls.push(request); return streamFactory(request) },
       wireStream: { async open() { return { async *[Symbol.asyncIterator]() { try { yield* eventFrames } finally { eventClosed = true } } } } },
     },
@@ -29,6 +30,7 @@ function fixture() {
   const bridge = new DshBridge(host)
   const peer = bridge.createPeer('phone')
   return { bridge, peer, calls, eventFrames, fetched, envelopes, eventClosed: () => eventClosed,
+    setInvoke: (next: typeof invokeResult) => { invokeResult = next },
     setStream: (next: typeof streamFactory) => { streamFactory = next } }
 }
 
@@ -52,7 +54,7 @@ test('follow uses opening snapshot semantics and disposes its upstream on return
   let released = false
   f.setStream(async function*() { try { yield { type: 'snapshot', cursor: 42 }; yield { type: 'event' } } finally { released = true } })
   const stream = f.bridge.subscribe(f.peer, 'session', { sessionId: 's' }, new AbortController().signal)
-  for await (const frame of stream) { assert.deepEqual(frame, { type: 'snapshot', cursor: 42 }); break }
+  for await (const frame of stream) { assert.deepEqual(frame, { type: 'snapshot', cursor: 42, presentation: { turns: [] } }); break }
   assert.equal(released, true)
   assert.deepEqual(f.calls[0]?.args, { request: { activate: true, assistantStream: true, address: { kind: 'session', sessionId: 's' } } })
   assert.equal(f.calls[0]?.signal?.aborted, true)
@@ -87,4 +89,26 @@ test('workspace list closes its first-baseline subscription', async () => {
   f.setStream(async function*() { try { yield { type: 'baseline', value: { items: [{ workspaceId: 'w' }] } } } finally { released = true } })
   assert.deepEqual(await f.bridge.invoke(f.peer, 'workspaces.list', {}), { items: [{ workspaceId: 'w' }] })
   assert.equal(released, true)
+})
+
+test('feedback snapshots follow queued updates, enforce compare-and-set and close their scope', async () => {
+  const f = fixture()
+  let revision = 0
+  f.setInvoke(request => {
+    if (request.method === 'list') return { ok: true, value: { items: [{ messageId: 'm', version: `v${++revision}`, rating: 'positive' }] } }
+    return { ok: false, error: { code: 'version-conflict', current: null } }
+  })
+  f.setStream(async function*() {
+    yield { type: 'snapshot' }
+    yield { type: 'event', event: { type: 'feedback/message-put', data: { sessionId: 's' } } }
+  })
+  const frames = []
+  for await (const frame of f.bridge.subscribe(f.peer, 'feedback', { sessionId: 's' }, new AbortController().signal)) frames.push(frame)
+  assert.deepEqual(frames, [1, 2].map(revision => ({ type: 'baseline', value: { items: [{ messageId: 'm', version: `v${revision}`, rating: 'positive' }] } })))
+  assert.deepEqual(f.calls[0]?.args, { request: { address: { kind: 'session', sessionId: 's' }, activate: false } })
+  assert.equal(f.calls[1]?.namespace, 'messageFeedback')
+  assert.equal(f.calls[0]?.signal?.aborted, true)
+  await assert.rejects(f.bridge.invoke(f.peer, 'feedback.put', { sessionId: 's', messageId: 'm', rating: 'positive', ifVersion: null }), { code: 'feedback/version-conflict' })
+  assert.deepEqual(f.calls.at(-1)?.args, { request: { sessionId: 's', messageId: 'm', rating: 'positive', ifVersion: null } })
+  await assert.rejects(f.bridge.invoke(f.peer, 'feedback.constructor', {}), { code: 'mobile/method-not-found' })
 })

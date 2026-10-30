@@ -121,6 +121,22 @@ export async function apply(host: DshHostServices & DeterministicHost, config: {
       turnLifetime.abort()
       await Promise.allSettled([answer, observe, turnStream.return?.(), interactionStream.return?.()])
     }
+    const lastAssistant = frames.filter(frame => paramsOf(frame).type === 'event').map(frame => paramsOf(paramsOf(frame).event)).filter(event => event.type === 'assistant/message').at(-1)
+    const messageId = paramsOf(paramsOf(lastAssistant?.data).message).id
+    assert.equal(typeof messageId, 'string')
+    const feedbackLifetime = new AbortController()
+    const feedbackStream = bridge.subscribe(peer, 'feedback', { sessionId }, feedbackLifetime.signal)[Symbol.asyncIterator]()
+    assert.deepEqual((await feedbackStream.next()).value, { type: 'baseline', value: { items: [] } })
+    const feedback = paramsOf(await bridge.invoke(peer, 'feedback.put' , { sessionId, messageId, rating: 'positive', ifVersion: null }))
+    assert.equal(feedback.rating, 'positive')
+    assert.equal(paramsOf(paramsOf((await feedbackStream.next()).value).value).items instanceof Array, true)
+    const listedFeedback = paramsOf(await bridge.invoke(peer, 'feedback.list', { sessionId }))
+    assert.equal((listedFeedback.items as unknown[]).length, 1)
+    await assert.rejects(bridge.invoke(peer, 'feedback.put', { sessionId, messageId, rating: 'negative', ifVersion: null }), { code: 'feedback/version-conflict' })
+    await bridge.invoke(peer, 'feedback.delete', { sessionId, messageId, ifVersion: feedback.version })
+    assert.deepEqual(await bridge.invoke(peer, 'feedback.list', { sessionId }), { items: [] })
+    feedbackLifetime.abort(); await feedbackStream.return?.()
+    checks.push('messageFeedback.listPutDeleteAndConflict')
     // turn/end is committed before the loop releases its running-work lease.
     for await (const state of bridge.subscribe(peer, 'sessionState', { sessionId }, AbortSignal.timeout(5000))) {
       if (paramsOf(state).running === false) break

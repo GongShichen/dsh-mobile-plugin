@@ -9,3 +9,21 @@ coverage/
 *service-account*.json
 .local/
 *.sqlite*
+
+# Local signing, private provider configuration, and delivery artifacts
+*.p12
+*.pfx
+*.mobileprovision
+*.ipa
+*.apk
+*.aab
+*.xcarchive/
+*firebase-adminsdk*.json
+google-services.json
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+*.log

@@ -47,7 +47,7 @@ test('adapter calls real DSH session, workspace, file and upload services in an 
       'workspace.create', 'session.create', 'session.list', 'session.rename', 'session.state',
       'workspaceFiles.list', 'workspaceFiles.read', 'workspaceFiles.readBytes', 'fileUploads.binaryReceipt',
       'session.follow.snapshot', 'session.prompt.idempotent', 'agentLoop.reasoningAndText', 'tool.approvalAndResult',
-      'session.follow.realTurn', 'workspace.archiveAndUnarchive',
+      'session.follow.realTurn', 'messageFeedback.listPutDeleteAndConflict', 'workspace.archiveAndUnarchive',
     ])
   } finally {
     if (child.exitCode === null) {

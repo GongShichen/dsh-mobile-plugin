@@ -47,7 +47,7 @@ export interface HostContext extends DshHostServices {
   }
   effect(effect: () => (() => void | Promise<void>)): unknown
   on(name: 'session/event', handler: (session: { id: string }, event: { type: string; seq: number; data: Record<string, unknown> }) => void, options: { global: true }): unknown
-  logger: { warn(...args: unknown[]): void }
+  logger: { warn(...args: unknown[]): void; info?(...args: unknown[]): void }
 }
 
 type RuntimeSurface = Pick<MobileRuntime, 'status' | 'start' | 'stop' | 'createInvitation' | 'approve' | 'reject' | 'revoke' | 'listDevices' | 'broadcastPushConfigurationChanged'>
@@ -65,7 +65,7 @@ export async function apply(ctx: HostContext, config: Config): Promise<void> {
 
 export async function applyWithDependencies(ctx: HostContext, config: Config, dependencies: PluginDependencies = {}): Promise<void> {
   if (process.platform !== 'darwin' || process.arch !== 'arm64') {
-    throw new Error('DSH Mobile 0.1 supports macOS Apple Silicon hosts')
+    throw new Error('Harness Link 0.1 supports macOS Apple Silicon hosts')
   }
   const baseUrl = ctx.root.baseUrl
   if (!config.dataDirectory && (!baseUrl || !baseUrl.startsWith('file:'))) {
@@ -111,6 +111,7 @@ export async function applyWithDependencies(ctx: HostContext, config: Config, de
     hostName: config.hostName, dshVersion: SUPPORTED_DSH_VERSION, invitationTtlMs: config.invitationTtlMs,
     maxConnections: config.maxConnections, maxSubscriptions: config.maxSubscriptions,
     onError: code => ctx.logger.warn('Mobile connection:', code),
+    onDiagnostic: (event, detail) => ctx.logger.info?.(`[mobile] ${event} ${detail}`),
   }
   runtime = dependencies.createRuntime?.(runtimeOptions) ?? new MobileRuntime(runtimeOptions)
   disposers.push(() => runtime.stop())
