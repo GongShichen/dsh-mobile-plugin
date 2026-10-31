@@ -71,8 +71,9 @@ if (serial.startsWith('emulator-')) {
   }
 }
 const config = JSON.stringify({ uri, endpointId: status.endpointId, workspaceId: initial.workspaceId, run: randomUUID() })
-await phone(['shell', 'run-as', pkg, 'rm', '-f', 'files/hl-interaction-qa-status.json'])
+await phone(['shell', 'run-as', pkg, 'rm', '-f', 'files/hl-interaction-qa-status.json', 'files/hl-interaction-failure.png', 'files/hl-interaction-failure.xml'])
 await phone(['shell', `run-as ${pkg} sh -c 'umask 077; mkdir -p files; cat > files/hl-interaction-qa.json'`], config)
+await writeFile(join(directory, 'result.json'), JSON.stringify({ ok: null, modes, stage: 'starting' }, null, 2), { mode: 0o600 })
 let output = '', finished = false, exitCode
 const child = spawn(adb, ['-s', serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'HL_INTERACTION_QA', '1', ...(onlyMode ? ['-e', 'HL_ONLY_MODE', onlyMode] : []), '-e', 'class', `${pkg}.HLInteractionsFlowTest`, `${pkg}.test/androidx.test.runner.AndroidJUnitRunner`], { stdio: ['ignore', 'pipe', 'pipe'] })
 child.stdout.on('data', data => { output += data }); child.stderr.on('data', data => { output += data })
