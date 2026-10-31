@@ -24,6 +24,7 @@ export const mobileStyles = `
 .dm-pairing{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:32px;align-items:center;padding:8px 0 16px}
 .dm-pairing-copy{display:grid;gap:14px;padding:8px 0}
 .dm-eyebrow{font-size:11px;letter-spacing:2px;font-weight:650;color:var(--dm-muted)}
+.dm-brand{display:flex;align-items:center;gap:10px}.dm-brand>svg{color:var(--dm-accent,#355ce0);flex-shrink:0}
 .dm-muted{color:var(--dm-muted);font-size:13px;line-height:1.65}
 .dm-steps{list-style:none;padding:0;margin:8px 0 2px;display:grid;gap:18px}
 .dm-steps li{display:flex;gap:12px;align-items:flex-start}

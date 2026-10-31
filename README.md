@@ -1,5 +1,8 @@
 # Harness Link Plugin
 
+<img src="docs/assets/HLMark.svg" width="64" alt="Harness Link — Glide Ray">
+
+
 通过 Android/iOS 原生客户端连接电脑上的 DeepSeek Harness。插件嵌入 iroh，优先直连，在需要时使用公共端到端加密中继；不需要自己部署服务器。
 
 本项目是独立社区扩展，与 DeepSeek 无隶属关系。配对手机可以操作所连接 profile 的会话和工作区，只授权自己的设备。

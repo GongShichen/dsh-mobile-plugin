@@ -4,6 +4,7 @@ import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import QRCode from 'qrcode'
 import type { HLAccessStatus, HLNotificationStatus, HLOwnerCall } from './HLContract.js'
 import { mobileStyles } from './HLStyles.js'
+import { HLBrandMark } from './HLBrandMark.js'
 
 const column: CSSProperties = { display: 'grid', gap: 16, minWidth: 0 }
 const card: CSSProperties = { display: 'grid', gap: 16 }
@@ -21,7 +22,7 @@ export function HLAccessLauncher({ call, wide }: { call: HLOwnerCall; wide?: boo
   const [open, setOpen] = useState(false)
   return <>
     <style>{mobileStyles}</style>
-    <button className={`dm-launcher${wide ? ' dm-launcher-wide' : ''}`} type="button" title="移动访问" aria-label="移动访问" aria-haspopup="dialog" onClick={() => setOpen(true)}><HLGlyph name="phone" size={18}/>{wide && <span>移动访问</span>}</button>
+    <button className={`dm-launcher${wide ? ' dm-launcher-wide' : ''}`} type="button" title="移动访问" aria-label="移动访问" aria-haspopup="dialog" onClick={() => setOpen(true)}><HLBrandMark size={20}/>{wide && <span>移动访问</span>}</button>
     <Modal open={open} onClose={() => setOpen(false)} title="移动访问" closeLabel="关闭移动访问" className="dsh-mobile-modal" contentClassName="dsh-mobile-modal-content">
       {open && <HLAccessPage call={call}/>}
     </Modal>
@@ -78,7 +79,7 @@ export function HLAccessPage({ call }: { call: HLOwnerCall }) {
     {!state ? <div className="dm-loading" role="status">正在读取电脑状态…</div> : view === 'connection' ? <>
       <section className="dm-pairing" aria-label="手机配对">
         <div className="dm-pairing-copy">
-          <span className="dm-eyebrow">HARNESS LINK</span>
+          <div className="dm-brand"><HLBrandMark size={32}/><span className="dm-eyebrow">HARNESS LINK</span></div>
           <h2>从手机，继续你的工作</h2>
           <p className="dm-muted">同一份会话与工作区。一次配对，随时接上电脑。</p>
           <ol className="dm-steps"><li><span>1</span><div><strong>打开手机 App</strong><p>进入设备页，选择扫码连接</p></div></li><li><span>2</span><div><strong>扫描配对二维码</strong><p>连接到这台电脑</p></div></li><li><span>3</span><div><strong>在电脑上确认</strong><p>确认后，手机即可继续对话</p></div></li></ol>
