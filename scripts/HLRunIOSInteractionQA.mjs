@@ -20,7 +20,7 @@ const runKey = createHash('sha256').update(`${simulator ? 'simulator' : 'physica
 const directory = resolve(option('--directory', join(root, '.local/interactions-qa')))
 const allModes = ['approval', 'reject', 'desktop', 'cancel', 'reconnect', 'permission', 'plan', 'questions', 'skip', 'timed']
 const only = option('--only')
-assert.ok(!only || [...allModes, 'conversation'].includes(only), 'Unknown interaction QA mode')
+assert.ok(!only || [...allModes, 'conversation', 'changes'].includes(only), 'Unknown interaction QA mode')
 const modes = only ? [only] : allModes
 const { origin, cookie } = JSON.parse(await readFile(resolve(option('--auth', join(root, '.local/integration/auth.json'))), 'utf8'))
 assert.ok(new URL(origin).protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname), 'QA origin must be loopback')
@@ -120,7 +120,7 @@ try {
     for (const mode of modes) if (stages.includes(`request:${mode}`) && !started.has(mode)) {
       const session = await rpc('session/create', { args: { request: { workspaceId: initial.workspaceId } } })
       started.set(mode, session.sessionId)
-      await rpc('session/rename', { args: { request: { sessionId: session.sessionId, title: mode === 'conversation' ? config.conversationTitle : `HL QA · ${mode}` } } })
+      await rpc('session/rename', { args: { request: { sessionId: session.sessionId, title: ['conversation', 'changes'].includes(mode) ? config.conversationTitle : `HL QA · ${mode}` } } })
       await rpc('session/selectModel', { args: { request: { sessionId: session.sessionId, provider: 'hl-interaction-fixture', model: 'hl-interaction-fixture' } } })
       await rpc('session/prompt', { args: { request: { sessionId: session.sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text: `[HL_QA:${mode}:${randomUUID()}]` }] } } })
     }
@@ -159,6 +159,7 @@ try {
   if (modes.includes('skip')) assert.deepEqual(answers('skip')[0].selected, [])
   if (modes.includes('timed')) { assert.equal(held, true); assert.ok(row('timed').lateReply) }
   if (modes.includes('conversation')) assert.equal(row('conversation').result?.verified, true)
+  if (modes.includes('changes')) { assert.equal(row('changes').result?.verified, true); assert.ok(row('changes').changes?.seq, 'Official change snapshot must be announced') }
   const audit = Object.values(state.audit).filter(a => [...started.values()].includes(a.sessionId))
   assert.ok(audit.every(a => a.decisions.length === 1))
   const after = await settingsSnapshot('after')

@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Native mobile access to DeepSeek Harness over encrypted peer-to-peer connections",
   "type": "module",
   "license": "MIT",

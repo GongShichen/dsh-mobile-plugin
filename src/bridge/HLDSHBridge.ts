@@ -4,6 +4,7 @@ import type { HLDSHHostServices, HLPeer, HLParams, HLPeerScope, HLSharedFetch } 
 import { HLPresentationTracker } from '../sync/HLPresentationTracker.js'
 import { firstFrame, sessionListStream } from '../sync/HLStreams.ts'
 import { HLInteractionChannel, validateQuestionAnswer } from '../sync/HLInteractionChannel.ts'
+import { readChanges } from './HLChanges.ts'
 
 export type { HLDSHHostServices, HLPeer, HLPeerScope, HLParams } from './HLBridgeTypes.ts'
 export { HLBridgeError } from './HLBridgeError.ts'
@@ -71,6 +72,9 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
     const { operationId: _operationId, ...request } = paramsOf(params)
     const [domain, action, extra] = method.split('.')
     if (extra !== undefined) throw new HLBridgeError('mobile/method-not-found', 'Unknown mobile method')
+    if (method === 'changes.summary' || method === 'changes.diff') {
+      return readChanges(method, request, request => this.fetch(peer, request), this.signal(peer, signal))
+    }
     if (domain === 'sessions' && action !== undefined) {
       if (SESSION_METHODS.has(action)) {
         if (action === 'prompt') textField(request.requestId, 'requestId')

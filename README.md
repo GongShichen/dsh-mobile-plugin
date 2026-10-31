@@ -26,7 +26,7 @@ npx --yes pnpm@11.28.5 pack
 将预构建包安装进实际使用的 DSH profile。下面是 Web profile 的例子：
 
 ```bash
-npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add ./dsh-mobile-plugin-0.1.1.tgz
+npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add ./dsh-mobile-plugin-0.1.2.tgz
 npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 ```
 
@@ -39,6 +39,8 @@ npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 3. 在电脑上核对手机名称并批准。
 4. 手机保存电脑身份，以后自动重连；界面区分直连与加密中继。
 5. 丢失手机或不再使用时，在电脑上撤销设备。所有该设备连接和推送注册同时失效。
+
+插件 `0.1.2` 增加 `changes` 能力，移动端可读取 Web 相同的会话改动快照与逐行差异。接口只接受会话、事件序号和文件索引，按需读取，不保存第二份快照。历史快照随桌面会话释放或 Host 重启失效。
 
 不需要打开 DSH 的公网监听端口，不需要把启动 token 或模型 API key复制到手机。电脑必须保持唤醒且 DSH 正在运行。
 

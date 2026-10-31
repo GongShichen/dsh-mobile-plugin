@@ -26,6 +26,16 @@ QR text is `dsh-mobile://pair?data=<base64url UTF-8 JSON>`. Its payload is `{ "v
 
 ## Operations
 
+### Conversation file changes
+
+The `changes` capability adds two read-only methods: `changes.summary {sessionId,seq}` and `changes.diff {sessionId,seq,index}`. They use the authenticated owner Peer's official Connection Fetch routes `/api/changes.summary` and `/api/changes.diff`, the same sources as the Web review UI. Callers cannot supply a filesystem path, arbitrary route or namespace. Neither method creates an operation-ledger entry.
+
+Coordinates come from durable `workspace/changes` Session events; their data contains the turn number. Keep only the latest sequence for each turn. A file index always refers to the original, unfiltered summary order. Summary responses are `{status:"available",summary:{turn,files,total,added,deleted}}`; file entries contain `path,display,added,deleted` with optional `binary:true` or `oversized:true`. Host working directories and Git tree identifiers are omitted. `total` may exceed the number of served files. Per-turn counts must not be presented as a net conversation diff.
+
+Diff responses are `{status:"available",diff:WorkspaceFileDiff}` using the public DSH DTO: `kind:"text"` includes `path,display,before,after,hunks,coarse`; each hunk includes `oldStart,oldLines,newStart,newLines,lines` with `+`, `-` or space prefixes. `before`/`after` determine added/deleted/modified status. Binary and oversized variants contain only `kind,path,display`. `coarse:true` means the Host fell back to whole-file replacement.
+
+Both methods return `{status:"unavailable"}` when the Host no longer serves that snapshot (or the Web route is absent). This is distinct from an available summary with zero files. Transient server failures remain errors with an explicit retry action. Snapshots are not durable across Host restart or Session disposal. The phone holds summaries and comparisons only in the open panel's memory, discards them on connection-generation or conversation changes, and never reconstructs old diffs from the current working tree. History is paged on demand; the UI identifies that only loaded rounds are shown. Git snapshots cover turn-start/end changes; outside Git, the official recorder covers file-tool mutations rather than arbitrary shell edits.
+
 Business mutations carry `operationId` in params. Prompts additionally carry a persistent `requestId`. The same id must always carry identical content. A dispatched non-idempotent operation with an unknown outcome must not be automatically replayed.
 
 The following fixed mobile methods map to existing DSH APIs through the bridge; there is no generic namespace/method passthrough:

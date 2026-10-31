@@ -310,7 +310,7 @@ export class HLRuntime {
     if (method === 'hello') {
       const authorized = this.pairing.device(state.deviceId) !== undefined
       if (authorized) await this.authorize(state)
-      return { protocolVersion: 1, authorized, hostId: this.endpoint?.id().toString(), hostInstanceId: this.instanceId, hostName: this.options.hostName, dshVersion: this.options.dshVersion, adapterVersion: this.options.adapterVersion ?? '0.1.1', capabilities: authorized ? ['sessions', 'workspaces', 'models', 'files', 'attachments', 'interactions', 'interaction-waits', 'jobs', 'push', 'feedback'] : [] }
+      return { protocolVersion: 1, authorized, hostId: this.endpoint?.id().toString(), hostInstanceId: this.instanceId, hostName: this.options.hostName, dshVersion: this.options.dshVersion, adapterVersion: this.options.adapterVersion ?? '0.1.2', capabilities: authorized ? ['sessions', 'workspaces', 'models', 'files', 'attachments', 'interactions', 'interaction-waits', 'jobs', 'push', 'feedback', 'changes'] : [] }
     }
     if (method === 'pairing.request') {
       const platform = stringField(params, 'platform')

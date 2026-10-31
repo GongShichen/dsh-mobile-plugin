@@ -1,7 +1,8 @@
 /** Isolated, credential-free fixture. Exercises real Agent, approval, question and Gateway services. */
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
-import { mkdir, writeFile, rename } from 'node:fs/promises'
+import { mkdir, writeFile, rename, rm } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
 import { HLDSHBridge } from '../../src/bridge/HLDSHBridge.ts'
 
 export const name = 'hl-interaction-qa'
@@ -10,6 +11,14 @@ export const inject = ['connection', 'typertGateway', 'sessionController', 'work
 export async function apply(host: any, config: { directory: string; runtimeRoot: string }): Promise<void> {
   const directory = config.directory
   await mkdir(join(directory, 'workspace'), { recursive: true })
+  // Owned fixture repository only. Official turn snapshots capture these harmless test edits.
+  const changeDirectory = join(directory, 'workspace', 'hl-changes-fixture')
+  await mkdir(changeDirectory, { recursive: true })
+  execFileSync('git', ['init', '--quiet', changeDirectory])
+  await writeFile(join(changeDirectory, 'HLChanged.txt'), 'const greeting = "before";\n')
+  await writeFile(join(changeDirectory, 'HLDeleted.txt'), 'This fixture file will be deleted.\n')
+  execFileSync('git', ['-C', changeDirectory, 'add', '--', 'HLChanged.txt', 'HLDeleted.txt'])
+  execFileSync('git', ['-C', changeDirectory, '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-c', 'user.name=Harness Link QA', '-c', 'user.email=qa@harnesslink.invalid', 'commit', '--quiet', '--allow-empty', '-m', 'test: seed isolated change snapshots'])
   await writeFile(join(directory, 'state.json'), JSON.stringify({ ready: false, startedAt: Date.now() }), { mode: 0o600 })
   const load = (name: string) => import(pathToFileURL(join(config.runtimeRoot, 'node_modules', name, 'lib/index.js')).href)
   const llm = await load('@deepseek-ai/dsh-llm')
@@ -95,13 +104,20 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
   }
   host.llm.registerAdapter(['hl-interaction-fixture'], new HLInteractionAdapter())
   host.tools.register(tools.defineTool({
-    name: 'hl_interaction_fixture', description: 'Harmless interaction QA: records decisions; never executes commands or changes permissions.',
+    name: 'hl_interaction_fixture', description: 'Isolated QA: records decisions or edits owned fixture files; never changes permissions.',
     parameters: { mode: { type: 'string', required: true }, nonce: { type: 'string', required: true } },
     output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text', text: value }] },
     async execute(args: { mode: string; nonce: string }, exec: any) {
       if (!exec.agent) throw new Error('Fixture requires a real Agent')
       let result: unknown
       if (args.mode === 'conversation') {
+        result = { verified: true }
+      } else if (args.mode === 'changes') {
+        if (!/^[a-z0-9-]+$/.test(args.nonce)) throw new Error('Invalid fixture nonce')
+        await writeFile(join(changeDirectory, 'HLChanged.txt'), 'const greeting = "after";\nexport const version = 2;\n')
+        await rm(join(changeDirectory, 'HLDeleted.txt'), { force: true })
+        await writeFile(join(changeDirectory, `HLAdded-${args.nonce}.txt`), 'A new fixture file.\n')
+        await writeFile(join(changeDirectory, `HLBinary-${args.nonce}.bin`), Buffer.from([0, 1, 2, 3]))
         result = { verified: true }
       } else if (args.mode === 'permission') {
         result = await host.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: [{
@@ -132,6 +148,7 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
     }
     if (event.type === 'approval/asked') state.audit[event.data.id] = { sessionId: session.id, callId: event.data.callId, decisions: [] }
     if (event.type === 'approval/decided') state.audit[event.data.id]?.decisions.push(event.data.outcome)
+    if (event.type === 'workspace/changes' && state.sessions[session.id]) state.sessions[session.id].changes = { seq: event.seq, turn: event.data.turn }
     if (['tool/result', 'user/message', 'turn/end'].includes(event.type) && state.sessions[session.id]) {
       const row = state.sessions[session.id]
       if (event.type === 'tool/result') row.toolResult = event.data
@@ -158,9 +175,9 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
   const bridge = new HLDSHBridge(host)
   const peer = bridge.createPeer('hl-fixture-bootstrap')
   try {
-    const workspace: any = await bridge.invoke(peer, 'workspaces.create', { path: join(directory, 'workspace') })
+    const workspace: any = await bridge.invoke(peer, 'workspaces.create', { path: changeDirectory })
     state.ready = true; state.workspaceId = workspace.workspace.workspaceId
-    state.workspacePath = join(directory, 'workspace'); state.provider = 'hl-interaction-fixture'
+    state.workspacePath = changeDirectory; state.provider = 'hl-interaction-fixture'
     save()
   } finally { await bridge.dispose() }
 }
