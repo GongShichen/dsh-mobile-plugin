@@ -3,6 +3,7 @@ import { HLBridgeError, paramsOf, record, textField } from './HLBridgeError.ts'
 import type { HLDSHHostServices, HLPeer, HLParams, HLPeerScope, HLSharedFetch } from './HLBridgeTypes.ts'
 import { HLPresentationTracker } from '../sync/HLPresentationTracker.js'
 import { firstFrame, sessionListStream } from '../sync/HLStreams.ts'
+import { HLInteractionChannel, validateQuestionAnswer } from '../sync/HLInteractionChannel.ts'
 
 export type { HLDSHHostServices, HLPeer, HLPeerScope, HLParams } from './HLBridgeTypes.ts'
 export { HLBridgeError } from './HLBridgeError.ts'
@@ -16,6 +17,7 @@ const emptyUplink = { async *[Symbol.asyncIterator](): AsyncGenerator<unknown> {
 /** Fixed mobile vocabulary over the pinned Gateway; caller authorization belongs to transport. */
 export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
   private readonly peers = new Set<HLPeer<S>>()
+  private readonly interactionChannels = new Map<HLPeer<S>, HLInteractionChannel>()
   private readonly presentations = new Map<HLPeer<S>, Map<string, HLPresentationTracker>>()
   private presentation(peer: HLPeer<S>, sessionId: string): HLPresentationTracker {
     let sessions = this.presentations.get(peer)
@@ -40,6 +42,8 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
   async disposePeer(peer: HLPeer<S>): Promise<void> {
     this.peers.delete(peer)
     this.presentations.delete(peer)
+    await this.interactionChannels.get(peer)?.close()
+    this.interactionChannels.delete(peer)
     await peer.scope.dispose()
   }
 
@@ -113,10 +117,30 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
       finally { controller.abort() }
     }
     if (method === 'questions.answer') {
-      const { sessionId, agentId, ...args } = request
-      return this.call(peer, 'userQuestions', 'answer', { ...args, agentId: agentId ?? sessionId }, signal)
+      const sessionId = textField(request.agentId ?? request.sessionId, 'sessionId')
+      const callId = textField(request.callId, 'callId')
+      const snapshot = await this.call(peer, 'session', 'projections', { request: { sessionId } }, signal)
+      const values = record(snapshot) && record(snapshot.values) ? snapshot.values : undefined
+      const questions = values && record(values.userQuestions) ? values.userQuestions : undefined
+      const pending = questions && Array.isArray(questions.active) ? questions.active.find(q => record(q) && q.callId === callId && q.state === 'continued') : undefined
+      if (!record(pending)) return false
+      validateQuestionAnswer(pending.questions, request.answer)
+      // A stored continued question can outlive its live Agent. Retain an official activation
+      // lease while answering; this does not switch the phone's currently selected conversation.
+      const activation = new AbortController()
+      const lifetime = AbortSignal.any([this.signal(peer, signal), activation.signal])
+      const stream = await this.stream(peer, 'session', 'follow', { request: { address: { kind: 'session', sessionId }, activate: true, maxMessages: 1 } }, lifetime)
+      const iterator = stream[Symbol.asyncIterator]()
+      try {
+        const opening = await iterator.next()
+        if (opening.done || !record(opening.value) || opening.value.type !== 'snapshot') throw new HLBridgeError('mobile/question-not-ready', '询问所属会话尚未就绪')
+        return await this.call(peer, 'userQuestions', 'answer', { agentId: sessionId, callId, answer: request.answer }, lifetime)
+      } catch (error) {
+        if (record(error) && error.code === 'REPLY_QUEUED') return false
+        throw error
+      } finally { activation.abort(); try { await iterator.return?.() } catch { /* Cancellation already released the lease. */ } }
     }
-    if (method === 'interactions.reply') return this.reply(peer, request, signal)
+    if (method === 'interactions.reply') return this.interactionChannels.get(peer)?.reply(request, this.signal(peer, signal)) ?? { accepted: false }
     throw new HLBridgeError('mobile/method-not-found', `Unsupported mobile method: ${method}`)
   }
 
@@ -138,7 +162,7 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
     return this.sharedFetch.fetch(new Request(request, { signal }), peer.scope)
   }
 
-  private async reply(peer: HLPeer<S>, result: HLParams, signal?: AbortSignal): Promise<unknown> {
+  private async postInteractionResult(peer: HLPeer<S>, result: HLParams, signal?: AbortSignal): Promise<void> {
     const rpcId = randomUUID()
     const response = await this.fetch(peer, new Request('http://dsh.internal/api/$events/result', {
       method: 'POST', signal: this.signal(peer, signal), headers: { 'content-type': 'application/json' },
@@ -152,11 +176,18 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
       const error = paramsOf(envelope.result.error)
       throw new HLBridgeError(typeof error.code === 'string' ? error.code : 'mobile/upstream-error', typeof error.message === 'string' ? error.message : 'Interaction reply failed')
     }
-    return { accepted: true }
   }
 
-  private events(peer: HLPeer<S>, signal: AbortSignal): Promise<AsyncIterable<unknown>> {
-    return this.host.typertGateway.wireStream.open('$events', { args: {} }, emptyUplink, peer.scope, this.signal(peer, signal))
+  private interactionChannel(peer: HLPeer<S>): HLInteractionChannel {
+    let channel = this.interactionChannels.get(peer)
+    if (!channel) {
+      channel = new HLInteractionChannel(
+        signal => this.host.typertGateway.wireStream.open('$events', { args: {} }, emptyUplink, peer.scope, this.signal(peer, signal)),
+        (result, signal) => this.postInteractionResult(peer, result, signal), peer.scope.signal,
+      )
+      this.interactionChannels.set(peer, channel)
+    }
+    return channel
   }
 
   /** Each subscription owns its upstream lifetime; no afterSeq is invented for session/follow. */
@@ -167,13 +198,23 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
     try {
       switch (topic) {
         case 'sessions':
-          yield* sessionListStream(await this.events(peer, lifetime), () => this.invoke(peer, 'sessions.list', {}, lifetime), lifetime)
+          yield* sessionListStream(this.interactionChannel(peer).subscribe(false, lifetime), () => this.invoke(peer, 'sessions.list', {}, lifetime), lifetime)
           break
         case 'interactions':
-          for await (const event of await this.events(peer, lifetime)) {
-            if (record(event) && (event.type === 'ready' || event.type === 'waterfall' || event.type === 'cancel')) yield event
-          }
+          yield* this.interactionChannel(peer).subscribe(true, lifetime)
           break
+        case 'questionWait': {
+          const frame = this.interactionChannels.get(peer)?.request(request.clientId, request.eventId)
+          const body = frame && record(frame.request) ? frame.request : undefined
+          const wait = body && record(body.wait) ? body.wait : undefined
+          if (frame?.event === 'user-questions/request' && wait?.timed === true && typeof wait.callId === 'string') {
+            for await (const value of await this.stream(peer, 'userQuestions', 'attachWait', { agentId: frame.agentId, callId: wait.callId }, lifetime)) {
+              if (record(value)) yield { type: 'waiting', eventId: request.eventId, remainingMs: value.remainingMs }
+            }
+          }
+          yield { type: 'ended', eventId: request.eventId }
+          break
+        }
         case 'session': {
           if ('afterSeq' in request || 'resumeCursor' in request) throw new HLBridgeError('mobile/invalid-params', 'session/follow does not accept an afterSeq or resumeCursor')
           const { sessionId, ...fields } = request

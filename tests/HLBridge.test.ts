@@ -10,6 +10,7 @@ function fixture() {
   const fetched: Request[] = []
   const envelopes: unknown[] = []
   let eventClosed = false
+  let persistentEvents = false
   let invokeResult = (_request: HLGatewayRequest<HLPeerScope>): unknown => ({ items: [] })
   const host: HLDSHHostServices = {
     connection: {
@@ -24,12 +25,16 @@ function fixture() {
     typertGateway: {
       async invoke(request) { calls.push(request); return invokeResult(request) },
       async stream(request) { calls.push(request); return streamFactory(request) },
-      wireStream: { async open() { return { async *[Symbol.asyncIterator]() { try { yield* eventFrames } finally { eventClosed = true } } } } },
+      wireStream: { async open(_endpoint, _payload, _uplink, _peer, signal) { return { async *[Symbol.asyncIterator]() { try {
+        yield* eventFrames
+        if (persistentEvents && !signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }))
+      } finally { eventClosed = true } } } } },
     },
   }
   const bridge = new HLDSHBridge(host)
   const peer = bridge.createPeer('phone')
   return { bridge, peer, calls, eventFrames, fetched, envelopes, eventClosed: () => eventClosed,
+    keepEvents: () => { persistentEvents = true },
     setInvoke: (next: typeof invokeResult) => { invokeResult = next },
     setStream: (next: typeof streamFactory) => { streamFactory = next } }
 }
@@ -73,6 +78,12 @@ test('session list baseline opens after event readiness and preserves queued lis
 
 test('interaction reply uses the exact Connection envelope and keeps its peer', async () => {
   const f = fixture()
+  f.eventFrames[0] = { type: 'ready', clientId: 'c' }
+  f.eventFrames.push({ type: 'waterfall', event: 'approval/request', eventId: 'e', agentId: 's', request: { toolName: 'fixture' } })
+  f.keepEvents()
+  const controller = new AbortController()
+  const events = f.bridge.subscribe(f.peer, 'interactions', {}, controller.signal)[Symbol.asyncIterator]()
+  await events.next(); await events.next()
   const result = await f.bridge.invoke(f.peer, 'interactions.reply', { operationId: 'op', clientId: 'c', eventId: 'e', outcome: { kind: 'result', value: 'rejected' } })
   assert.deepEqual(result, { accepted: true })
   assert.equal(f.fetched[0]?.url, 'http://dsh.internal/api/$events/result')
@@ -81,6 +92,8 @@ test('interaction reply uses the exact Connection envelope and keeps its peer', 
   assert.equal(envelope.type, 'client-request')
   assert.equal(envelope.method, '$events/result')
   assert.deepEqual(envelope.payload, { args: { clientId: 'c', eventId: 'e', outcome: { kind: 'result', value: 'rejected' } } })
+  assert.deepEqual((await events.next()).value, { type: 'cancel', eventId: 'e' })
+  controller.abort(); await events.return?.(); await f.bridge.dispose()
 })
 
 test('workspace list closes its first-baseline subscription', async () => {
@@ -89,6 +102,44 @@ test('workspace list closes its first-baseline subscription', async () => {
   f.setStream(async function*() { try { yield { type: 'baseline', value: { items: [{ workspaceId: 'w' }] } } } finally { released = true } })
   assert.deepEqual(await f.bridge.invoke(f.peer, 'workspaces.list', {}), { items: [{ workspaceId: 'w' }] })
   assert.equal(released, true)
+})
+
+test('timed question claims use the original Agent and call and release without disposing the Peer', async () => {
+  const f = fixture(); f.keepEvents()
+  f.eventFrames.push({ type: 'waterfall', event: 'user-questions/request', eventId: 'question', agentId: 'original-session', request: { questions: [{ id: 'q', question: 'Choose' }], wait: { callId: 'original-call', timed: true } } })
+  const events = f.bridge.subscribe(f.peer, 'interactions', {}, f.peer.scope.signal)[Symbol.asyncIterator]()
+  await events.next(); await events.next()
+  let released = false
+  f.setStream(async function*(request) {
+    assert.equal(request.namespace, 'userQuestions'); assert.equal(request.method, 'attachWait')
+    assert.deepEqual(request.args, { agentId: 'original-session', callId: 'original-call' })
+    try { yield { remainingMs: 3000 } } finally { released = true }
+  })
+  const controller = new AbortController()
+  const claim = f.bridge.subscribe(f.peer, 'questionWait', { clientId: 'client-1', eventId: 'question' }, controller.signal)[Symbol.asyncIterator]()
+  assert.deepEqual((await claim.next()).value, { type: 'waiting', eventId: 'question', remainingMs: 3000 })
+  controller.abort(); await claim.return?.()
+  assert.equal(released, true); assert.equal(f.peer.scope.signal.aborted, false)
+  await f.bridge.dispose(); await events.return?.()
+})
+
+test('continued replies verify authoritative questions and retain a live activation lease', async () => {
+  const f = fixture(); let released = false
+  f.setInvoke(request => request.namespace === 'session' ? { kind: 'sequenced', asOfSeq: 12, values: { userQuestions: { active: [{ callId: 'call', state: 'continued', questions: [{ id: 'q', question: 'Choose', options: [{ label: 'A' }] }] }] } } } : true)
+  f.setStream(async function*(request) {
+    assert.equal(request.method, 'follow')
+    assert.deepEqual(request.args, { request: { address: { kind: 'session', sessionId: 'stored' }, activate: true, maxMessages: 1 } })
+    try { yield { type: 'snapshot' } } finally { released = true }
+  })
+  const answer = { answers: [{ id: 'q', selected: ['A'] }] }
+  assert.equal(await f.bridge.invoke(f.peer, 'questions.answer', { sessionId: 'stored', callId: 'call', answer }), true)
+  assert.deepEqual(f.calls.find(c => c.namespace === 'userQuestions')?.args, { agentId: 'stored', callId: 'call', answer })
+  assert.equal(released, true)
+  f.setInvoke(() => ({ kind: 'sequenced', asOfSeq: 13, values: { userQuestions: { active: [] } } }))
+  const count = f.calls.filter(c => c.namespace === 'userQuestions').length
+  assert.equal(await f.bridge.invoke(f.peer, 'questions.answer', { sessionId: 'stored', callId: 'call', answer }), false)
+  assert.equal(f.calls.filter(c => c.namespace === 'userQuestions').length, count)
+  await f.bridge.dispose()
 })
 
 test('feedback snapshots follow queued updates, enforce compare-and-set and close their scope', async () => {

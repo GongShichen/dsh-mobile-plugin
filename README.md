@@ -29,7 +29,7 @@ npx --yes pnpm@11.28.5 pack
 将预构建包安装进实际使用的 DSH profile。下面是 Web profile 的例子：
 
 ```bash
-npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add ./dsh-mobile-plugin-0.1.0.tgz
+npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add ./dsh-mobile-plugin-0.1.1.tgz
 npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 ```
 
@@ -85,6 +85,8 @@ Apple 首次密钥创建及 App 签名必须使用自己的匹配开发者团队
 ## 验证
 
 `pnpm check` 包括 TypeScript 检查、行为测试与发布构建。真实 iroh 本机加密连接测试覆盖配对、权限门禁、RPC、独立事件流、二进制传输、持久重连和撤销。APNs/FCM 单元测试使用可控 provider transport，不向真实设备发送通知。
+
+权限确认、计划审阅与询问的同步范围、计时和补答语义，以及 Android 跨端回归方法见 [移动端交互说明](docs/HLInteractions.md)。
 
 实际 DSH 集成 fixture 位于 `tests/fixtures`，使用隔离的 `DSH_HOME`，不读取用户模型凭据。真机推送、蜂窝网络与 App 签名必须另外验收；具体已执行结果见 [验证记录](docs/VALIDATION.md)。
 
