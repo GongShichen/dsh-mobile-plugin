@@ -30,3 +30,7 @@ google-services.json
 *.xctestrun
 *.xcresult/
 *.xcactivitylog
+
+# Local documentation and design workspaces
+/docs/
+/design-system/

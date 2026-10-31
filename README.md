@@ -1,8 +1,5 @@
 # Harness Link Plugin
 
-<img src="docs/assets/HLMark.svg" width="64" alt="Harness Link — Glide Ray">
-
-
 通过 Android/iOS 原生客户端连接电脑上的 DeepSeek Harness。插件嵌入 iroh，优先直连，在需要时使用公共端到端加密中继；不需要自己部署服务器。
 
 本项目是独立社区扩展，与 DeepSeek 无隶属关系。配对手机可以操作所连接 profile 的会话和工作区，只授权自己的设备。
@@ -66,7 +63,7 @@ npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 
 Mac 直接请求 APNs/FCM，不部署通知网关。在“移动访问 → 手机通知”导入凭据，自动校验后向已配对手机发送测试通知。
 
-Apple 首次密钥创建及 App 签名必须使用自己的匹配开发者团队。Firebase 导入 `service-account.json` 与 `google-services.json`，手机自动接收公开配置，不接收服务端私钥。详见[通知配置说明](docs/notifications.md)。
+Apple 首次密钥创建及 App 签名必须使用自己的匹配开发者团队。Firebase 导入 `service-account.json` 与 `google-services.json`，手机自动接收公开配置，不接收服务端私钥。
 
 推送服务接受不等于手机已经收到；打开测试通知会回传确认。无 GMS Android、系统通知权限关闭、电脑离线或休眠时，后台提醒可能不可用。通知不替代状态同步。
 
@@ -86,12 +83,10 @@ Apple 首次密钥创建及 App 签名必须使用自己的匹配开发者团队
 
 `pnpm check` 包括 TypeScript 检查、行为测试与发布构建。真实 iroh 本机加密连接测试覆盖配对、权限门禁、RPC、独立事件流、二进制传输、持久重连和撤销。APNs/FCM 单元测试使用可控 provider transport，不向真实设备发送通知。
 
-权限确认、计划审阅与询问的同步范围、计时和补答语义，以及 Android 跨端回归方法见 [移动端交互说明](docs/HLInteractions.md)。
+权限确认、计划审阅和询问遵循官方 Agent 交互语义；原生回归控制脚本位于 `scripts/`。
 
-实际 DSH 集成 fixture 位于 `tests/fixtures`，使用隔离的 `DSH_HOME`，不读取用户模型凭据。真机推送、蜂窝网络与 App 签名必须另外验收；具体已执行结果见 [验证记录](docs/VALIDATION.md)。
+实际 DSH 集成 fixture 位于 `tests/fixtures`，使用隔离的 `DSH_HOME`，不读取用户模型凭据。真机推送、蜂窝网络与 App 签名必须另外验收。
 
 ## 桌面界面
 
 “移动访问”入口沿用 DSH 侧栏的文字、间距和悬停样式；面板分为“连接设备”和“通知设置”。二维码、配对确认与设备状态集中在连接页，通知凭据按平台逐步配置。界面使用宿主的浅色/深色主题变量，支持窄窗口及减少动效设置。
-
-Source naming conventions: [HL naming](docs/HLNaming.md).
