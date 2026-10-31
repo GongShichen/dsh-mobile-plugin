@@ -4,25 +4,57 @@
   "description": "Native mobile access to DeepSeek Harness over encrypted peer-to-peer connections",
   "type": "module",
   "license": "MIT",
-  "main": "./dist/index.js",
-  "exports": { ".": "./dist/index.js", "./client": "./dist/client.js", "./package.json": "./package.json" },
-  "files": ["dist", "cordis.patch.yml", "protocol", "docs", "licenses", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-  "repository": { "type": "git", "url": "git+https://github.com/GongShichen/dsh-mobile-plugin.git" },
-  "engines": { "node": ">=24.9.0", "dsh": "0.2.2-alpha.2" },
+  "main": "./dist/HLPlugin.js",
+  "exports": {
+    ".": "./dist/HLPlugin.js",
+    "./client": "./dist/HLClient.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "protocol",
+    "docs",
+    "licenses",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GongShichen/dsh-mobile-plugin.git"
+  },
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": "0.2.2-alpha.2"
+  },
   "packageManager": "pnpm@11.28.5",
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
-    "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-sidebar", "@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-client-ui-primitives"] }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
   },
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/HLBuild.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "test:iroh": "node --import tsx --test tests/iroh-runtime.test.ts",
+    "test:iroh": "node --import tsx --test tests/HLIrohRuntime.test.ts",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "prepack": "pnpm build"
   },
-  "peerDependencies": { "@deepseek-ai/cordis": "4.0.6-alpha.1" },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.6-alpha.1"
+  },
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.6-alpha.1",
     "@number0/iroh": "1.2.0",
