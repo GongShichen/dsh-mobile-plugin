@@ -12,6 +12,7 @@
   },
   "files": [
     "dist",
+    "assets/HLBanner.webp",
     "cordis.patch.yml",
     "protocol",
     "licenses",

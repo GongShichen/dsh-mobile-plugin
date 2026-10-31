@@ -1,94 +1,123 @@
 # Harness Link Plugin
 
-通过 Android/iOS 原生客户端连接电脑上的 DeepSeek Harness。插件嵌入 iroh，优先直连，在需要时使用公共端到端加密中继；不需要自己部署服务器。
+**让手机安全接入正在运行的 DeepSeek Harness。**
 
-本项目是独立社区扩展，与 DeepSeek 无隶属关系。配对手机可以操作所连接 profile 的会话和工作区，只授权自己的设备。
+[![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple%20Silicon-595959.svg)](#安装) [![License: MIT](https://img.shields.io/badge/License-MIT-595959.svg)](LICENSE)
 
-## 兼容基线
+**[安装](#安装) · [连接手机](#连接手机) · [手机通知](#手机通知) · [协议](protocol/PROTOCOL.md)**
 
-- macOS Apple Silicon，Node.js 24.9 或更高。
-- DeepSeek Harness `0.2.2-alpha.2`，源码提交 `ce7073d51254c26cd63b22a60835b8f948deb447`。
-- iroh Node binding `1.2.0`（核心 `1.4.1`）。
-- 对应移动端：[GongShichen/dsh-mobile](https://github.com/GongShichen/dsh-mobile)。
+<img src="assets/HLBanner.webp" alt="Harness Link Plugin — Pair your phone. Keep your agent on your Mac." width="100%">
 
-DSH 接口仍在变化。插件通过 `engines.dsh` 限定已适配版本，不绕过宿主兼容检查。Windows、Linux 与 Intel Mac 不在此版本的发布目标中。
+这是 [Harness Link 移动 App](https://github.com/GongShichen/dsh-mobile) 的桌面接入插件。它在现有 DSH profile 中提供配对、P2P 连接、状态同步和手机通知，复用官方接口，不修改 DSH 运行时。
 
-## 开发、构建和安装
+## 安装
 
-```bash
-git clone git@github.com:GongShichen/dsh-mobile-plugin.git
+| 条件 | 当前适配基线 |
+| --- | --- |
+| 桌面 | macOS / Apple Silicon。 |
+| 宿主 | DeepSeek Harness `0.2.2-alpha.2`，基线 [ce7073d](https://github.com/deepseek-ai/deepseek-harness/tree/ce7073d51254c26cd63b22a60835b8f948deb447)。 |
+| 工具链 | Node.js 24.9+、pnpm 11.28.5。 |
+| 手机 | 配套 [Harness Link](https://github.com/GongShichen/dsh-mobile)，支持 Android 8.0+ / iOS 17.5+。 |
+
+先从源码生成安装包：
+
+```sh
+git clone https://github.com/GongShichen/dsh-mobile-plugin.git
 cd dsh-mobile-plugin
 npx --yes pnpm@11.28.5 install --frozen-lockfile
-npx --yes pnpm@11.28.5 check
-npx --yes pnpm@11.28.5 pack
+npx --yes pnpm@11.28.5 pack --out dsh-mobile-plugin.tgz
 ```
 
-将预构建包安装进实际使用的 DSH profile。下面是 Web profile 的例子：
+`pack` 会先构建，再打包。将生成的 `.tgz` 安装到实际使用的 profile；下面以 **Web profile** 为例：
 
-```bash
-npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add ./dsh-mobile-plugin-0.1.2.tgz
+```sh
+npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add "$PWD/dsh-mobile-plugin.tgz"
 npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 ```
 
-源码开发也可使用 `plugin --profile web add /absolute/path/to/dsh-mobile-plugin`，先构建，再重启 profile。桌面应用使用自己的 profile，应在其插件管理界面安装构建包，不要假定与 `web` 共用配置。
+若使用 DSH Desktop，先打开应用完成 profile 初始化，再完全退出；将上面安装命令中的 `--profile web` 改为 `--profile desktop`，安装后重新打开 Desktop。两个 profile 的配置和设备授权相互独立。
 
-## 使用
+插件通过 `engines.dsh` 限定已适配版本。Windows、Linux 和 Intel Mac 尚不在当前发布目标内。
 
-1. 打开侧栏或设置中的“移动访问”。
-2. 生成二维码，在 Harness Link 中扫描；邀请五分钟后失效。
-3. 在电脑上核对手机名称并批准。
-4. 手机保存电脑身份，以后自动重连；界面区分直连与加密中继。
-5. 丢失手机或不再使用时，在电脑上撤销设备。所有该设备连接和推送注册同时失效。
+## 连接手机
 
-插件 `0.1.2` 增加 `changes` 能力，移动端可读取 Web 相同的会话改动快照与逐行差异。接口只接受会话、事件序号和文件索引，按需读取，不保存第二份快照。历史快照随桌面会话释放或 Host 重启失效。
+1. 在 DSH 侧栏或设置中打开 **移动访问**。
+2. 生成二维码，让手机扫描；也可复制配对链接到 App。邀请五分钟后失效。
+3. 在电脑核对手机名称并确认授权，手机随后同步会话与工作区。
+4. 下次打开 App，选择已配对电脑即可重连；需要停止授权时，在电脑撤销设备。
 
-不需要打开 DSH 的公网监听端口，不需要把启动 token 或模型 API key复制到手机。电脑必须保持唤醒且 DSH 正在运行。
+授权手机可以操作这个 profile 的会话与工作区，请只配对自己信任的设备。撤销会立即断开连接、取消订阅，并移除该设备的推送注册。
 
-## 配置
+## 一次配对，继续同一份工作
 
-插件配置由 Cordis schema 校验。默认数据保存在当前 profile 下的 `mobile-access/`；不同 profile 的身份、授权设备、操作账本和通知配置隔离。
+| 能力 | 插件提供的连接 |
+| --- | --- |
+| 会话与执行 | 官方会话、工作区、模型目录、流式输出、思考与工具过程、任务状态；手机与 Web 操作同一份 DSH 数据。 |
+| 需要你决定的时刻 | 同步审批、计划审阅和用户询问，答复交回官方交互流程；另一端已处理的请求及时取消。 |
+| 文件与结果 | 工作区浏览和下载、设备绑定的分块上传、官方附件 receipt，以及 Web 同源的按轮次文件改动和文本差异。 |
 
-| 配置 | 默认值 | 用途 |
-|---|---|---|
-| `hostName` | 本机名称 | 手机显示的电脑名称 |
-| `dataDirectory` | 当前 profile/mobile-access | SQLite 与临时文件位置 |
-| `invitationTtlMs` | 300000 | 邀请有效期，不得超过五分钟 |
-| `maxFileBytes` | 32 MiB | 单文件限制 |
-| `maxDeviceBytes` | 128 MiB | 单设备临时文件配额 |
-| `uploadTtlMs` | 3600000 | 临时文件有效期 |
-| `maxConnections` | 8 | 并发连接上限 |
-| `maxSubscriptions` | 32 | 每连接订阅上限 |
+未打开的会话同步摘要，历史与文件按需读取。文件改动快照随桌面会话存活；桌面重启或释放会话后，旧快照不可用。文件修改通过桌面 Agent 工具执行。
 
-身份 seed、APNs 私钥、Firebase 私钥和推送 token 存储在 macOS Keychain，不写入配置文件或 Git。运行时会将必要身份材料加载进内存，因此不宣称私钥永远不离开硬件安全区。
+## 连接与数据
+
+**无需自建服务器。** 插件直接嵌入 iroh，优先建立直连；直连不可达时使用公共端到端加密中继。它不要求开放 DSH 公网监听端口，也不把 DSH 启动 token 或模型 API key 交给手机。
+
+二维码只携带短期邀请与连接信息；连接身份经过认证后，设备仍需桌面批准。各 profile 拥有独立身份和设备授权；身份材料及推送凭据保存在 macOS Keychain。
+
+Mac 必须保持唤醒，DSH 必须运行。手机进入后台后，系统可以暂停 P2P；重新打开 App 时获取当前状态。桌面未发送草稿和第三方插件 React 页面不转换为原生界面。
 
 ## 手机通知
 
-Mac 直接请求 APNs/FCM，不部署通知网关。在“移动访问 → 手机通知”导入凭据，自动校验后向已配对手机发送测试通知。
+在 **移动访问 → 通知设置** 导入凭据，点击“校验并启用手机通知”。Mac 直接调用 APNs / FCM，不另设通知网关。
 
-Apple 首次密钥创建及 App 签名必须使用自己的匹配开发者团队。Firebase 导入 `service-account.json` 与 `google-services.json`，手机自动接收公开配置，不接收服务端私钥。
+| 平台 | 导入内容 | 配置结果 |
+| --- | --- | --- |
+| iOS | 自己的 APNs `.p8`；匹配的 Key ID、Team ID、Bundle ID 和推送环境。 | 从手机读取应用信息，从标准密钥文件名识别 Key ID；不能推导的字段补填一次。 |
+| Android | `service-account.json` 与 `google-services.json`。 | 校验项目和 App，向手机下发公开 Firebase 配置，自动注册 token；首次启用无需重编 APK。 |
 
-推送服务接受不等于手机已经收到；打开测试通知会回传确认。无 GMS Android、系统通知权限关闭、电脑离线或休眠时，后台提醒可能不可用。通知不替代状态同步。
+第一次创建 Apple 密钥、配置签名或创建 Firebase 项目，仍需在自己的开发者账号中完成。iOS 推送要求安装包与 APNs 凭据匹配的团队；免费 Personal Team 构建不提供 APNs。
 
-## 源码结构
+服务端私钥留在 Mac。通知不包含对话正文；“服务已接收”和“手机已确认”分别展示。无 GMS、通知权限关闭或 Mac 离线、休眠时，后台提醒可能不可用。通知不承担会话同步。
 
-- `src/transport`：真实 iroh 连接、鉴权门禁、RPC/事件/文件流。
-- `src/pairing`、`src/storage`：邀请、授权设备、Keychain、SQLite、操作幂等账本。
-- `src/bridge`、`src/sync`：固定移动方法白名单，调用官方 Gateway，转换领域流。
-- `src/attachments`：设备绑定的断点临时文件和官方 receipt。
-- `src/notifications`：凭据导入、APNs/FCM、持久通知队列。
-- `src/client`：官方 Slot 扩展，不修改 DSH 页面源码。
-- `protocol`：两端共享的版本化协议和测试样例。
+## 开发与验证
 
-数据和界面的协议边界见 [mobile/v1](protocol/PROTOCOL.md)。未打开的会话同步摘要，历史与文件按需读取。归档不删除原始 DSH 日志。文件修改通过原有 Agent 工具执行。
+```sh
+npx --yes pnpm@11.28.5 check
+```
 
-## 验证
+[CI](https://github.com/GongShichen/dsh-mobile-plugin/actions/workflows/check.yml) 运行 TypeScript、行为测试和发布构建。iroh 测试覆盖真实本机加密连接、配对门禁、RPC、事件流、二进制传输、重连和设备撤销。
 
-`pnpm check` 包括 TypeScript 检查、行为测试与发布构建。真实 iroh 本机加密连接测试覆盖配对、权限门禁、RPC、独立事件流、二进制传输、持久重连和撤销。APNs/FCM 单元测试使用可控 provider transport，不向真实设备发送通知。
+实际 DSH 集成 fixture 与原生回归脚本使用隔离 profile，不读取用户模型凭据。APNs / FCM 单元测试使用可控 transport；真机推送和跨网络可达性分别验收。
 
-权限确认、计划审阅和询问遵循官方 Agent 交互语义；原生回归控制脚本位于 `scripts/`。
+- [src/bridge](src/bridge) 与 [src/sync](src/sync)：固定移动能力白名单，复用官方 Gateway / Connection Fetch。
+- [src/transport](src/transport)、[src/pairing](src/pairing) 与 [src/storage](src/storage)：P2P、身份、设备授权和操作账本。
+- [src/attachments](src/attachments)、[src/notifications](src/notifications) 与 [src/client](src/client)：附件、通知和官方 UI slots 扩展。
+- [protocol/PROTOCOL.md](protocol/PROTOCOL.md)：共享协议、同步与交互语义；[scripts](scripts) 中的 Android / iOS QA 控制脚本支持 `--only changes` 文件改动回归。
 
-实际 DSH 集成 fixture 位于 `tests/fixtures`，使用隔离的 `DSH_HOME`，不读取用户模型凭据。真机推送、蜂窝网络与 App 签名必须另外验收。
+源码开发可在构建后使用 `plugin --profile web add /absolute/path/to/dsh-mobile-plugin` 安装目录，再重启该 profile。
 
-## 桌面界面
+<details>
+<summary>插件配置与默认值</summary>
 
-“移动访问”入口沿用 DSH 侧栏的文字、间距和悬停样式；面板分为“连接设备”和“通知设置”。二维码、配对确认与设备状态集中在连接页，通知凭据按平台逐步配置。界面使用宿主的浅色/深色主题变量，支持窄窗口及减少动效设置。
+配置由 Cordis schema 校验。默认数据保存在当前 profile 的 `mobile-access/`，不同 profile 的 SQLite、设备、操作账本和通知配置隔离。
+
+| 配置 | 默认值 | 用途 |
+| --- | --- | --- |
+| `hostName` | 本机名称 | 手机显示的电脑名称。 |
+| `dataDirectory` | 当前 profile 下的 `mobile-access/` | SQLite 与临时文件位置。 |
+| `invitationTtlMs` | `300000` | 邀请有效期，最多五分钟。 |
+| `maxFileBytes` | 32 MiB | 单个传输文件限制。 |
+| `maxDeviceBytes` | 128 MiB | 单设备临时文件配额。 |
+| `uploadTtlMs` | `3600000` | 临时文件有效期。 |
+| `maxConnections` | `8` | 并发连接上限。 |
+| `maxSubscriptions` | `32` | 每连接订阅上限。 |
+
+身份、APNs / Firebase 私钥与推送 token 使用 Keychain；普通配置与临时文件不应提交到 Git。
+
+</details>
+
+## 许可证
+
+[MIT](LICENSE)。第三方组件与授权见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+Harness Link Plugin 是独立社区扩展，与 DeepSeek 无隶属关系。[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的名称及相关权利属于其各自权利人。
