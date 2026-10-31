@@ -56,6 +56,26 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
       if (!marker) throw new Error('Fixture prompts must contain an explicit HL_QA marker')
       const [, mode, nonce] = marker
       const key = `${options.sessionId}:${nonce}`
+      if (mode === 'conversation') {
+        const first = !this.seen.has(key)
+        this.seen.add(key)
+        const reasoning = first ? '检查测试数据\n\n思考细节：先核对输入，再查看工具结果。' : '确认工具结果\n\n思考细节：工具已返回可验证的数据。'
+        yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+        yield { type: 'reasoning-delta', index: 0, text: reasoning }
+        yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: reasoning } }
+        const text = first ? '我会先检查测试数据。' : '折叠过程后，这段最终回答仍然可见。'
+        yield { type: 'block-start', index: 1, blockType: 'text' }
+        yield { type: 'text-delta', index: 1, text }
+        yield { type: 'block-end', index: 1, block: { type: 'text', text } }
+        if (first) {
+          const block = { type: 'tool-call', id: `hl-qa-${nonce}`, name: 'hl_interaction_fixture', arguments: JSON.stringify({ mode, nonce }) }
+          yield { type: 'block-start', index: 2, blockType: 'tool-call' }
+          yield { type: 'tool-call-delta', index: 2, id: block.id, name: block.name, argumentsDelta: block.arguments }
+          yield { type: 'block-end', index: 2, block }
+        }
+        yield { type: 'finish', reason: { kind: first ? 'tool-calls' : 'stop' } }
+        return
+      }
       if (!this.seen.has(key)) {
         this.seen.add(key)
         const questionMode = ['questions', 'skip', 'timed'].includes(mode!)
@@ -81,7 +101,9 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
     async execute(args: { mode: string; nonce: string }, exec: any) {
       if (!exec.agent) throw new Error('Fixture requires a real Agent')
       let result: unknown
-      if (args.mode === 'permission') {
+      if (args.mode === 'conversation') {
+        result = { verified: true }
+      } else if (args.mode === 'permission') {
         result = await host.userQuestions.ask({ agent: exec.agent, signal: exec.signal, questions: [{
           id: 'permission', question: 'Allow the harmless QA resource?', detail: 'No actual resource permission is modified.',
           options: [{ label: 'grant-once' }, { label: 'deny' }, { label: 'grant-persistent' }],

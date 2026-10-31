@@ -15,7 +15,7 @@ const option = (name, fallback) => { const i = args.indexOf(name); return i < 0 
 const serial = option('--device')
 const onlyMode = option('--only')
 const allModes = ['approval', 'reject', 'desktop', 'cancel', 'reconnect', 'permission', 'plan', 'questions', 'skip', 'timed']
-if (onlyMode && !allModes.includes(onlyMode)) throw new Error(`Unknown QA mode: ${onlyMode}`)
+if (onlyMode && ![...allModes, 'conversation'].includes(onlyMode)) throw new Error(`Unknown QA mode: ${onlyMode}`)
 const modes = onlyMode ? [onlyMode] : allModes
 if (!serial) throw new Error('Use --device with an explicit adb device identifier; no device is selected automatically')
 const mobile = resolve(option('--mobile', join(root, '../dsh-mobile')))
@@ -75,7 +75,9 @@ await phone(['shell', 'run-as', pkg, 'rm', '-f', 'files/hl-interaction-qa-status
 await phone(['shell', `run-as ${pkg} sh -c 'umask 077; mkdir -p files; cat > files/hl-interaction-qa.json'`], config)
 await writeFile(join(directory, 'result.json'), JSON.stringify({ ok: null, modes, stage: 'starting' }, null, 2), { mode: 0o600 })
 let output = '', finished = false, exitCode
-const child = spawn(adb, ['-s', serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'HL_INTERACTION_QA', '1', ...(onlyMode ? ['-e', 'HL_ONLY_MODE', onlyMode] : []), '-e', 'class', `${pkg}.HLInteractionsFlowTest`, `${pkg}.test/androidx.test.runner.AndroidJUnitRunner`], { stdio: ['ignore', 'pipe', 'pipe'] })
+const child = spawn(adb, ['-s', serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'HL_INTERACTION_QA', '1', ...(onlyMode ? ['-e', 'HL_ONLY_MODE', onlyMode] : []),
+  ...(serial.startsWith('emulator-') && onlyMode === 'conversation' ? ['-e', 'HL_EMULATOR_VIEWPORTS', '1'] : []),
+  '-e', 'class', `${pkg}.HLInteractionsFlowTest`, `${pkg}.test/androidx.test.runner.AndroidJUnitRunner`], { stdio: ['ignore', 'pipe', 'pipe'] })
 child.stdout.on('data', data => { output += data }); child.stderr.on('data', data => { output += data })
 child.on('close', code => { finished = true; exitCode = code })
 const acted = new Set()
@@ -131,6 +133,7 @@ try {
   }
   if (includes('skip')) assert.deepEqual(answers('skip')?.[0]?.selected, [])
   if (includes('timed')) assert.ok(row('timed')?.lateReply)
+  if (includes('conversation')) assert.equal(row('conversation')?.result?.verified, true)
   const audit = Object.values(state.audit).filter(a => entries.some(([id]) => id === a.sessionId))
   assert.ok(audit.every(a => a.decisions.length === 1), 'An approval may settle only once')
   const copied = []
