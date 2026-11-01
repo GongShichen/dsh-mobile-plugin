@@ -4,7 +4,7 @@
 
 [![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple%20Silicon-595959.svg)](#安装) [![License: MIT](https://img.shields.io/badge/License-MIT-595959.svg)](LICENSE)
 
-**[安装](#安装) · [连接手机](#连接手机) · [手机通知](#手机通知) · [协议](protocol/PROTOCOL.md)**
+**[下载安装包](https://github.com/GongShichen/dsh-mobile-plugin/releases/tag/v0.1.2) · [安装](#安装) · [连接手机](#连接手机) · [手机通知](#手机通知) · [协议](protocol/PROTOCOL.md)**
 
 <img src="assets/HLBanner.webp" alt="Harness Link Plugin — Pair your phone. Keep your agent on your Mac." width="100%">
 
@@ -19,19 +19,10 @@
 | 工具链 | Node.js 24.9+、pnpm 11.28.5。 |
 | 手机 | 配套 [Harness Link](https://github.com/GongShichen/dsh-mobile)，支持 Android 8.0+ / iOS 17.5+。 |
 
-先从源码生成安装包：
+从 [v0.1.2 Preview](https://github.com/GongShichen/dsh-mobile-plugin/releases/tag/v0.1.2) 下载 `dsh-mobile-plugin-0.1.2.tgz`，校验同页的 `SHA256SUMS.txt`，再安装到实际使用的 profile。下面以 **Web profile** 为例，在安装包所在目录运行：
 
 ```sh
-git clone https://github.com/GongShichen/dsh-mobile-plugin.git
-cd dsh-mobile-plugin
-npx --yes pnpm@11.28.5 install --frozen-lockfile
-npx --yes pnpm@11.28.5 pack --out dsh-mobile-plugin.tgz
-```
-
-`pack` 会先构建，再打包。将生成的 `.tgz` 安装到实际使用的 profile；下面以 **Web profile** 为例：
-
-```sh
-npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add "$PWD/dsh-mobile-plugin.tgz"
+npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add "$PWD/dsh-mobile-plugin-0.1.2.tgz"
 npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 ```
 
@@ -80,6 +71,17 @@ Mac 必须保持唤醒，DSH 必须运行。手机进入后台后，系统可以
 服务端私钥留在 Mac。通知不包含对话正文；“服务已接收”和“手机已确认”分别展示。无 GMS、通知权限关闭或 Mac 离线、休眠时，后台提醒可能不可用。通知不承担会话同步。
 
 ## 开发与验证
+
+从源码构建安装包：
+
+```sh
+git clone https://github.com/GongShichen/dsh-mobile-plugin.git
+cd dsh-mobile-plugin
+npx --yes pnpm@11.28.5 install --frozen-lockfile
+npx --yes pnpm@11.28.5 pack --out dsh-mobile-plugin-0.1.2.tgz
+```
+
+`pack` 会先执行发布构建，再打包。完整检查可运行：
 
 ```sh
 npx --yes pnpm@11.28.5 check
