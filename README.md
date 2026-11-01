@@ -4,7 +4,7 @@
 
 [![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple%20Silicon-595959.svg)](#安装) [![License: MIT](https://img.shields.io/badge/License-MIT-595959.svg)](LICENSE)
 
-**[下载安装包](https://github.com/GongShichen/dsh-mobile-plugin/releases/tag/v0.1.2) · [安装](#安装) · [连接手机](#连接手机) · [手机通知](#手机通知) · [协议](protocol/PROTOCOL.md)**
+**[下载安装包](https://github.com/GongShichen/dsh-mobile-plugin/releases/tag/v0.1.3) · [安装](#安装) · [连接手机](#连接手机) · [手机通知](#手机通知) · [协议](protocol/PROTOCOL.md)**
 
 <img src="assets/HLBanner.webp" alt="Harness Link Plugin — Pair your phone. Keep your agent on your Mac." width="100%">
 
@@ -19,10 +19,10 @@
 | 工具链 | Node.js 24.9+、pnpm 11.28.5。 |
 | 手机 | 配套 [Harness Link](https://github.com/GongShichen/dsh-mobile)，支持 Android 8.0+ / iOS 17.5+。 |
 
-从 [v0.1.2 Preview](https://github.com/GongShichen/dsh-mobile-plugin/releases/tag/v0.1.2) 下载 `dsh-mobile-plugin-0.1.2.tgz`，校验同页的 `SHA256SUMS.txt`，再安装到实际使用的 profile。下面以 **Web profile** 为例，在安装包所在目录运行：
+从 [v0.1.3 Preview](https://github.com/GongShichen/dsh-mobile-plugin/releases/tag/v0.1.3) 下载 `dsh-mobile-plugin-0.1.3.tgz`，校验同页的 `SHA256SUMS.txt`，再安装到实际使用的 profile。下面以 **Web profile** 为例，在安装包所在目录运行：
 
 ```sh
-npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add "$PWD/dsh-mobile-plugin-0.1.2.tgz"
+npx @deepseek-ai/dsh@0.2.2-alpha.2 plugin --profile web add "$PWD/dsh-mobile-plugin-0.1.3.tgz"
 npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 ```
 
@@ -48,6 +48,8 @@ npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 | 文件与结果 | 工作区浏览和下载、设备绑定的分块上传、官方附件 receipt，以及 Web 同源的按轮次文件改动和文本差异。 |
 
 未打开的会话同步摘要，历史与文件按需读取。文件改动快照随桌面会话存活；桌面重启或释放会话后，旧快照不可用。文件修改通过桌面 Agent 工具执行。
+
+`permissions` 能力将手机选择交给官方 `/permission` 命令，仅改变当前会话。权限目录随桌面贡献动态刷新；上下文、Token / 缓存和会话统计复用官方投影，不在手机重新统计历史。
 
 ## 连接与数据
 
@@ -78,7 +80,7 @@ Mac 必须保持唤醒，DSH 必须运行。手机进入后台后，系统可以
 git clone https://github.com/GongShichen/dsh-mobile-plugin.git
 cd dsh-mobile-plugin
 npx --yes pnpm@11.28.5 install --frozen-lockfile
-npx --yes pnpm@11.28.5 pack --out dsh-mobile-plugin-0.1.2.tgz
+npx --yes pnpm@11.28.5 pack --out dsh-mobile-plugin-0.1.3.tgz
 ```
 
 `pack` 会先执行发布构建，再打包。完整检查可运行：

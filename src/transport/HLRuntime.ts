@@ -10,7 +10,7 @@ import { HLFrameWriter, integerField, object, readFrame, stringField } from './H
 
 export const MOBILE_ALPN = 'dsh-mobile/1'
 const ALPN_BYTES = Array.from(Buffer.from(MOBILE_ALPN))
-const MUTATIONS = new Set(['sessions.create', 'sessions.rename', 'sessions.fork', 'sessions.prompt', 'sessions.cancel', 'sessions.updateQueue', 'sessions.archive', 'sessions.unarchive', 'sessions.pin', 'sessions.unpin', 'workspaces.create', 'workspaces.rename', 'models.select', 'jobs.kill', 'interactions.reply', 'questions.answer', 'feedback.put', 'feedback.delete'])
+const MUTATIONS = new Set(['permissions.select', 'sessions.create', 'sessions.rename', 'sessions.fork', 'sessions.prompt', 'sessions.cancel', 'sessions.updateQueue', 'sessions.archive', 'sessions.unarchive', 'sessions.pin', 'sessions.unpin', 'workspaces.create', 'workspaces.rename', 'models.select', 'jobs.kill', 'interactions.reply', 'questions.answer', 'feedback.put', 'feedback.delete'])
 
 export interface HLBridgePort {
   createPeer(deviceId: string): HLPeer
@@ -310,7 +310,7 @@ export class HLRuntime {
     if (method === 'hello') {
       const authorized = this.pairing.device(state.deviceId) !== undefined
       if (authorized) await this.authorize(state)
-      return { protocolVersion: 1, authorized, hostId: this.endpoint?.id().toString(), hostInstanceId: this.instanceId, hostName: this.options.hostName, dshVersion: this.options.dshVersion, adapterVersion: this.options.adapterVersion ?? '0.1.2', capabilities: authorized ? ['sessions', 'workspaces', 'models', 'files', 'attachments', 'interactions', 'interaction-waits', 'jobs', 'push', 'feedback', 'changes'] : [] }
+      return { protocolVersion: 1, authorized, hostId: this.endpoint?.id().toString(), hostInstanceId: this.instanceId, hostName: this.options.hostName, dshVersion: this.options.dshVersion, adapterVersion: this.options.adapterVersion ?? '0.1.3', capabilities: authorized ? ['sessions', 'workspaces', 'models', 'files', 'attachments', 'interactions', 'interaction-waits', 'jobs', 'push', 'feedback', 'changes', 'permissions'] : [] }
     }
     if (method === 'pairing.request') {
       const platform = stringField(params, 'platform')

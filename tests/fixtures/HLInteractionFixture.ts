@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 import { mkdir, writeFile, rename, rm } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
+import { setTimeout as delay } from 'node:timers/promises'
 import { HLDSHBridge } from '../../src/bridge/HLDSHBridge.ts'
 
 export const name = 'hl-interaction-qa'
@@ -53,7 +54,7 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
   class HLInteractionAdapter extends llm.LlmAdapter {
     private readonly seen = new Set<string>()
     async listModels(provider: string) { return [{ provider, id: 'hl-interaction-fixture', name: 'HL isolated interaction fixture' }] }
-    async resolveModel(provider: string, model: string) { return { provider, id: model, name: model } }
+    async resolveModel(provider: string, model: string) { return { provider, id: model, name: model, context: { contextWindow: 1_000_000 }, reasoning: { efforts: [{ id: 'low', name: '低' }, { id: 'high', name: '高' }], defaultEffort: 'high' } } }
     async *stream(options: any): AsyncIterable<unknown> {
       if (options.purpose !== undefined) {
         yield { type: 'block-start', index: 0, blockType: 'text' }
@@ -65,16 +66,18 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
       if (!marker) throw new Error('Fixture prompts must contain an explicit HL_QA marker')
       const [, mode, nonce] = marker
       const key = `${options.sessionId}:${nonce}`
-      if (mode === 'conversation') {
+      if (mode === 'conversation' || mode === 'composer') {
         const first = !this.seen.has(key)
         this.seen.add(key)
         const reasoning = first ? '检查测试数据\n\n思考细节：先核对输入，再查看工具结果。' : '确认工具结果\n\n思考细节：工具已返回可验证的数据。'
         yield { type: 'block-start', index: 0, blockType: 'reasoning' }
         yield { type: 'reasoning-delta', index: 0, text: reasoning }
+        if (mode === 'composer') await delay(35, undefined, { signal: options.signal })
         yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: reasoning } }
-        const text = first ? '我会先检查测试数据。' : '折叠过程后，这段最终回答仍然可见。'
+        const text = mode === 'composer' ? first ? '正在读取会话状态。' : '会话统计验证已完成。' : first ? '我会先检查测试数据。' : '折叠过程后，这段最终回答仍然可见。'
         yield { type: 'block-start', index: 1, blockType: 'text' }
         yield { type: 'text-delta', index: 1, text }
+        if (mode === 'composer') await delay(35, undefined, { signal: options.signal })
         yield { type: 'block-end', index: 1, block: { type: 'text', text } }
         if (first) {
           const block = { type: 'tool-call', id: `hl-qa-${nonce}`, name: 'hl_interaction_fixture', arguments: JSON.stringify({ mode, nonce }) }
@@ -82,6 +85,9 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
           yield { type: 'tool-call-delta', index: 2, id: block.id, name: block.name, argumentsDelta: block.arguments }
           yield { type: 'block-end', index: 2, block }
         }
+        if (mode === 'composer') yield { type: 'usage', usage: first
+          ? { inputTokens: 25, cacheReadTokens: 75, cacheWriteTokens: 0, outputTokens: 10, reasoningTokens: 3 }
+          : { inputTokens: 10_000, cacheReadTokens: 50_000, cacheWriteTokens: 5_200, outputTokens: 500, reasoningTokens: 100 } }
         yield { type: 'finish', reason: { kind: first ? 'tool-calls' : 'stop' } }
         return
       }
@@ -110,7 +116,8 @@ export async function apply(host: any, config: { directory: string; runtimeRoot:
     async execute(args: { mode: string; nonce: string }, exec: any) {
       if (!exec.agent) throw new Error('Fixture requires a real Agent')
       let result: unknown
-      if (args.mode === 'conversation') {
+      if (args.mode === 'conversation' || args.mode === 'composer') {
+        if (args.mode === 'composer') await delay(35, undefined, { signal: exec.signal })
         result = { verified: true }
       } else if (args.mode === 'changes') {
         if (!/^[a-z0-9-]+$/.test(args.nonce)) throw new Error('Invalid fixture nonce')

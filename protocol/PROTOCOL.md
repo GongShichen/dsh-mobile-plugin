@@ -26,6 +26,16 @@ QR text is `dsh-mobile://pair?data=<base64url UTF-8 JSON>`. Its payload is `{ "v
 
 ## Operations
 
+### Composer permissions and statistics
+
+The `permissions` capability enables `permissions.catalog` (read), `permissions.select {sessionId,preset,acknowledged,operationId}` (mutation), and the process-scoped `permissions` subscription. The catalog carries only `options`, `defaultOptions` and `defaultPreset`; option entries contain `value,name,description?`. The subscription attaches the shared authenticated event listener before reading its first `{type:"baseline",value:catalog}` and re-reads the whole catalog after `permission-presets/catalog-changed`. Reconnect discards the prior generation's catalog.
+
+Selection validates the value against a fresh live catalog and submits only `/permission <preset>` through official `commands.execute {agentId:sessionId,line,submittedAttachments:[]}`. There is no arbitrary slash-command endpoint and no write to the default for future sessions. `danger-full-access` and `auto` require `acknowledged:true`; the mobile UI mirrors the Web risk gate with a fresh unchecked acknowledgment. Unknown, withdrawn or control-character values are refused. The resulting `permissions.currentValue` projection, rather than a local optimistic preset, is authoritative. The client binds the action to the original host, session and connection generation and does not replay an uncertain write.
+
+Read-only composer details reuse the existing full `session/follow` opening projection baseline and host-wide `sessionControl` replacement frames. `sessionStats`, `tokenUsage`, `contextPressure`, and `contextBreakdown` are never recomputed from the phone's paged messages or persisted on the phone. Missing projections stay unavailable, not invented zero values. Per-key sequence watermarks prevent an older baseline from replacing a newer update.
+
+The usage total is `uncachedInputTokens + cacheReadTokens + cacheWriteTokens + outputTokens`; reasoning is already included in output. Cache hit uses `cacheReadTokens / (uncachedInputTokens + cacheReadTokens + cacheWriteTokens)` and is absent when the denominator is zero. A partial hit is not rounded to 100%. Context occupancy uses `projectedTokens ?? pressureTokens` and a known positive `contextWindow`; its display percentage matches Web rounding and is capped at 100. The approximate system/tool/message composition proportions the occupied part of the bar and need not sum to the provider-anchored context reading. TTFT is `ttftMs / ttftSteps`; TPS is `decodeTokens / (decodeMs / 1000)` over the timed decode steps, rather than all output divided by total model time.
+
 ### Conversation file changes
 
 The `changes` capability adds two read-only methods: `changes.summary {sessionId,seq}` and `changes.diff {sessionId,seq,index}`. They use the authenticated owner Peer's official Connection Fetch routes `/api/changes.summary` and `/api/changes.diff`, the same sources as the Web review UI. Callers cannot supply a filesystem path, arbitrary route or namespace. Neither method creates an operation-ledger entry.

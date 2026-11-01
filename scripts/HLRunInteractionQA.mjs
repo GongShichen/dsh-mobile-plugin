@@ -15,7 +15,7 @@ const option = (name, fallback) => { const i = args.indexOf(name); return i < 0 
 const serial = option('--device')
 const onlyMode = option('--only')
 const allModes = ['approval', 'reject', 'desktop', 'cancel', 'reconnect', 'permission', 'plan', 'questions', 'skip', 'timed']
-if (onlyMode && ![...allModes, 'conversation', 'changes'].includes(onlyMode)) throw new Error(`Unknown QA mode: ${onlyMode}`)
+if (onlyMode && ![...allModes, 'conversation', 'changes', 'composer'].includes(onlyMode)) throw new Error(`Unknown QA mode: ${onlyMode}`)
 const modes = onlyMode ? [onlyMode] : allModes
 if (!serial) throw new Error('Use --device with an explicit adb device identifier; no device is selected automatically')
 const mobile = resolve(option('--mobile', join(root, '../dsh-mobile')))
@@ -54,6 +54,7 @@ const hostState = async () => JSON.parse(await readFile(join(directory, 'state.j
 const status = await management('status')
 assert.equal(status.hostName, 'Harness Link interaction QA', 'Refusing to test against a production Host')
 const initial = await hostState()
+const permissionDefault = onlyMode === 'composer' ? (await rpc('permissionPresets/catalog', { args: {} })).defaultPreset : undefined
 assert.equal(initial.ready, true, 'Load the isolated interaction fixture first')
 const oldSessions = new Set(Object.keys(initial.sessions))
 let invitation = await management('startPairing')
@@ -71,7 +72,9 @@ if (serial.startsWith('emulator-')) {
     await delay(250); invitation = await management('startPairing'); pairing = decodeInvitation(invitation)
   }
   assert.ok(local, 'Wait for a private IPv4 UDP address; a public NAT-mapped port cannot route through the emulator host alias')
-  const ticket = EndpointTicket.fromAddr(new EndpointAddr(address.id(), address.relayUrl(), [...address.directAddresses(), `10.0.2.2:${local.split(':').at(-1)}`]))
+  // The guest's host alias is the deterministic route for this emulator-only invitation.
+  // Public/NAT candidates describe the Mac's external network, not this guest-to-host path.
+  const ticket = EndpointTicket.fromAddr(new EndpointAddr(address.id(), undefined, [`10.0.2.2:${local.split(':').at(-1)}`]))
   const u = new URL(invitation.uri); u.searchParams.set('data', Buffer.from(JSON.stringify({ ...pairing, ticket: ticket.toString() })).toString('base64url')); uri = u.href
 }
 const config = JSON.stringify({ uri, endpointId: status.endpointId, workspaceId: initial.workspaceId, run: randomUUID() })
@@ -80,7 +83,7 @@ await phone(['shell', `run-as ${pkg} sh -c 'umask 077; mkdir -p files; cat > fil
 await writeFile(join(directory, 'result.json'), JSON.stringify({ ok: null, modes, stage: 'starting' }, null, 2), { mode: 0o600 })
 let output = '', finished = false, exitCode
 const child = spawn(adb, ['-s', serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'HL_INTERACTION_QA', '1', ...(onlyMode ? ['-e', 'HL_ONLY_MODE', onlyMode] : []),
-  ...(serial.startsWith('emulator-') && ['conversation', 'changes'].includes(onlyMode) ? ['-e', 'HL_EMULATOR_VIEWPORTS', '1'] : []),
+  ...(serial.startsWith('emulator-') && ['conversation', 'changes', 'composer'].includes(onlyMode) ? ['-e', 'HL_EMULATOR_VIEWPORTS', '1'] : []),
   '-e', 'class', `${pkg}.HLInteractionsFlowTest`, `${pkg}.test/androidx.test.runner.AndroidJUnitRunner`], { stdio: ['ignore', 'pipe', 'pipe'] })
 child.stdout.on('data', data => { output += data }); child.stderr.on('data', data => { output += data })
 child.on('close', code => { finished = true; exitCode = code })
@@ -97,6 +100,10 @@ try {
     try { progress = JSON.parse(await phone(['exec-out', 'run-as', pkg, 'cat', 'files/hl-interaction-qa-status.json'])) } catch { /* The Activity may still be starting. */ }
     if (progress?.stage !== lastStage && progress?.stage) { lastStage = progress.stage; console.log(`Phone QA: ${lastStage}`) }
     if (progress?.stage === 'needs-unlock') throw new Error('PHONE_LOCKED: unlock the connected phone and rerun')
+    if (progress?.stage === 'composer-desktop-permission' && !acted.has('composer-desktop-permission')) {
+      await rpc('commands/execute', { args: { agentId: progress.sessionId, line: '/permission read-only', submittedAttachments: [] } })
+      acted.add('composer-desktop-permission')
+    }
     if (['desktop-visible', 'cancel-visible'].includes(progress?.stage) && !acted.has(progress.sessionId)) {
       const state = await hostState(); const frame = state.desktop[progress.sessionId]
       if (frame) {
@@ -138,11 +145,21 @@ try {
   if (includes('skip')) assert.deepEqual(answers('skip')?.[0]?.selected, [])
   if (includes('timed')) assert.ok(row('timed')?.lateReply)
   if (includes('conversation')) assert.equal(row('conversation')?.result?.verified, true)
+  if (includes('composer')) {
+    assert.equal(row('composer')?.result?.verified, true); assert.ok(acted.has('composer-desktop-permission'))
+    const sessionId = entries.find(([, value]) => value.mode === 'composer')[0]
+    const values = (await rpc('session/projections', { args: { request: { sessionId } } })).values
+    assert.deepEqual(values.tokenUsage, { uncachedInputTokens: 10_025, cacheReadTokens: 50_075, cacheWriteTokens: 5_200, outputTokens: 510 })
+    assert.equal(values.permissions.currentValue, 'read-only'); assert.equal(values.contextPressure.contextWindow, 1_000_000)
+    assert.equal(values.sessionStats.turns, 1); assert.equal(values.sessionStats.steps, 2)
+    assert.ok(values.sessionStats.llmMs > 0 && values.sessionStats.toolMs > 0 && values.sessionStats.ttftSteps > 0 && values.sessionStats.decodeMs > 0)
+    assert.equal((await rpc('permissionPresets/catalog', { args: {} })).defaultPreset, permissionDefault)
+  }
   if (includes('changes')) { assert.equal(row('changes')?.result?.verified, true); assert.ok(row('changes')?.changes?.seq, 'The official Host must announce a change snapshot') }
   const audit = Object.values(state.audit).filter(a => entries.some(([id]) => id === a.sessionId))
   assert.ok(audit.every(a => a.decisions.length === 1), 'An approval may settle only once')
   const copied = []
-  for (const name of [...['approval', 'permission', 'plan', 'questions', 'continued'].filter(name => includes(name === 'continued' ? 'timed' : name)), ...(includes('changes') ? ['changes-list', 'changes-diff', 'changes-landscape'] : [])]) {
+  for (const name of [...['approval', 'permission', 'plan', 'questions', 'continued'].filter(name => includes(name === 'continued' ? 'timed' : name)), ...(includes('changes') ? ['changes-list', 'changes-diff', 'changes-landscape'] : []), ...(includes('composer') ? ['composer-dock', 'composer-statistics', 'composer-usage', 'composer-context', 'composer-risk', 'composer-landscape'] : [])]) {
     try {
       const bytes = await phoneBytes(['exec-out', 'run-as', pkg, 'cat', `files/hl-interaction-${name}.png`])
       await writeFile(join(directory, `android-${name}.png`), bytes, { mode: 0o600 })

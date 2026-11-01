@@ -20,7 +20,7 @@ const runKey = createHash('sha256').update(`${simulator ? 'simulator' : 'physica
 const directory = resolve(option('--directory', join(root, '.local/interactions-qa')))
 const allModes = ['approval', 'reject', 'desktop', 'cancel', 'reconnect', 'permission', 'plan', 'questions', 'skip', 'timed']
 const only = option('--only')
-assert.ok(!only || [...allModes, 'conversation', 'changes'].includes(only), 'Unknown interaction QA mode')
+assert.ok(!only || [...allModes, 'conversation', 'changes', 'composer'].includes(only), 'Unknown interaction QA mode')
 const modes = only ? [only] : allModes
 const { origin, cookie } = JSON.parse(await readFile(resolve(option('--auth', join(root, '.local/integration/auth.json'))), 'utf8'))
 assert.ok(new URL(origin).protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname), 'QA origin must be loopback')
@@ -70,11 +70,12 @@ catch (error) { if (error.code !== 'ENOENT') throw error; original = await setti
 if (!original.hostNames) { original.hostNames = (await settingsSnapshot('names')).hostNames; await privateJson(originalFile, original) }
 assert.equal(new Set(Object.values(original.hostNames)).size, original.hostIds.length, 'The UI QA fixture requires uniquely named computers')
 const status = await management('status'), initial = await fixture()
+const permissionDefault = only === 'composer' ? (await rpc('permissionPresets/catalog', { args: {} })).defaultPreset : undefined
 const oldSessions = new Set(Object.keys(initial.sessions))
 const invitation = await management('startPairing')
 const invite = JSON.parse(Buffer.from(new URL(invitation.uri).searchParams.get('data'), 'base64url').toString())
 const config = { uri: invitation.uri, endpointId: status.endpointId, originalHostId: original.originalHostId, hostNames: { ...original.hostNames, [status.endpointId]: status.hostName }, modes,
-  conversationTitle: `HL 过程折叠 · ${randomUUID().slice(0, 8)}` }
+  conversationTitle: `HL ${only === 'composer' ? '会话统计' : '过程折叠'} · ${randomUUID().slice(0, 8)}` }
 const redact = value => value.replaceAll(config.uri, '[redacted one-use invitation]')
 assert.notEqual(config.originalHostId, status.endpointId, 'Restore the original non-QA computer before starting')
 const source = resolve(testRun)
@@ -120,7 +121,7 @@ try {
     for (const mode of modes) if (stages.includes(`request:${mode}`) && !started.has(mode)) {
       const session = await rpc('session/create', { args: { request: { workspaceId: initial.workspaceId } } })
       started.set(mode, session.sessionId)
-      await rpc('session/rename', { args: { request: { sessionId: session.sessionId, title: ['conversation', 'changes'].includes(mode) ? config.conversationTitle : `HL QA · ${mode}` } } })
+      await rpc('session/rename', { args: { request: { sessionId: session.sessionId, title: ['conversation', 'changes', 'composer'].includes(mode) ? config.conversationTitle : `HL QA · ${mode}` } } })
       await rpc('session/selectModel', { args: { request: { sessionId: session.sessionId, provider: 'hl-interaction-fixture', model: 'hl-interaction-fixture' } } })
       await rpc('session/prompt', { args: { request: { sessionId: session.sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text: `[HL_QA:${mode}:${randomUUID()}]` }] } } })
     }
@@ -131,6 +132,10 @@ try {
         else await rpc('session/cancel', { args: { request: { sessionId } } })
         acted.add(mode)
       }
+    }
+    if (stages.includes('composer-desktop-permission') && !acted.has('composer-desktop-permission')) {
+      await rpc('commands/execute', { args: { agentId: started.get('composer'), line: '/permission read-only', submittedAttachments: [] } })
+      acted.add('composer-desktop-permission')
     }
     if (stages.includes('timed-held') && !held) {
       const p = await rpc('session/projections', { args: { request: { sessionId: started.get('timed') } } })
@@ -159,6 +164,15 @@ try {
   if (modes.includes('skip')) assert.deepEqual(answers('skip')[0].selected, [])
   if (modes.includes('timed')) { assert.equal(held, true); assert.ok(row('timed').lateReply) }
   if (modes.includes('conversation')) assert.equal(row('conversation').result?.verified, true)
+  if (modes.includes('composer')) {
+    assert.equal(row('composer').result?.verified, true); assert.ok(acted.has('composer-desktop-permission'))
+    const values = (await rpc('session/projections', { args: { request: { sessionId: started.get('composer') } } })).values
+    assert.deepEqual(values.tokenUsage, { uncachedInputTokens: 10_025, cacheReadTokens: 50_075, cacheWriteTokens: 5_200, outputTokens: 510 })
+    assert.equal(values.permissions.currentValue, 'read-only'); assert.equal(values.contextPressure.contextWindow, 1_000_000)
+    assert.equal(values.sessionStats.turns, 1); assert.equal(values.sessionStats.steps, 2)
+    assert.ok(values.sessionStats.llmMs > 0 && values.sessionStats.toolMs > 0 && values.sessionStats.ttftSteps > 0 && values.sessionStats.decodeMs > 0)
+    assert.equal((await rpc('permissionPresets/catalog', { args: {} })).defaultPreset, permissionDefault)
+  }
   if (modes.includes('changes')) { assert.equal(row('changes').result?.verified, true); assert.ok(row('changes').changes?.seq, 'Official change snapshot must be announced') }
   const audit = Object.values(state.audit).filter(a => [...started.values()].includes(a.sessionId))
   assert.ok(audit.every(a => a.decisions.length === 1))

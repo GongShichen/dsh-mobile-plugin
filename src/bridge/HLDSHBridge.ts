@@ -5,6 +5,8 @@ import { HLPresentationTracker } from '../sync/HLPresentationTracker.js'
 import { firstFrame, sessionListStream } from '../sync/HLStreams.ts'
 import { HLInteractionChannel, validateQuestionAnswer } from '../sync/HLInteractionChannel.ts'
 import { readChanges } from './HLChanges.ts'
+import { permissionCatalog, permissionSelection } from './HLPermissions.ts'
+import { permissionCatalogStream } from '../sync/HLPermissionCatalogStream.ts'
 
 export type { HLDSHHostServices, HLPeer, HLPeerScope, HLParams } from './HLBridgeTypes.ts'
 export { HLBridgeError } from './HLBridgeError.ts'
@@ -74,6 +76,16 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
     if (extra !== undefined) throw new HLBridgeError('mobile/method-not-found', 'Unknown mobile method')
     if (method === 'changes.summary' || method === 'changes.diff') {
       return readChanges(method, request, request => this.fetch(peer, request), this.signal(peer, signal))
+    }
+    if (method === 'permissions.catalog') return permissionCatalog(await this.call(peer, 'permissionPresets', 'catalog', {}, signal))
+    if (method === 'permissions.select') {
+      const catalog = permissionCatalog(await this.call(peer, 'permissionPresets', 'catalog', {}, signal))
+      const selection = permissionSelection(request, catalog)
+      const result = await this.call(peer, 'commands', 'execute', { agentId: selection.sessionId, line: selection.line, submittedAttachments: [] }, signal)
+      if (!record(result) || !record(result.result) || result.result.kind !== 'success') {
+        throw new HLBridgeError('permissions/rejected', record(result) && record(result.result) && typeof result.result.text === 'string' ? result.result.text : '桌面没有接受这次权限切换')
+      }
+      return { accepted: true }
     }
     if (domain === 'sessions' && action !== undefined) {
       if (SESSION_METHODS.has(action)) {
@@ -201,6 +213,9 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
     const request = paramsOf(params)
     try {
       switch (topic) {
+        case 'permissions':
+          yield* permissionCatalogStream(this.interactionChannel(peer).subscribe(false, lifetime), () => this.invoke(peer, 'permissions.catalog', {}, lifetime), lifetime)
+          break
         case 'sessions':
           yield* sessionListStream(this.interactionChannel(peer).subscribe(false, lifetime), () => this.invoke(peer, 'sessions.list', {}, lifetime), lifetime)
           break
