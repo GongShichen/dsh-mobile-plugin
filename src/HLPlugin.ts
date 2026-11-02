@@ -9,6 +9,10 @@ import { HLAttachmentManager } from './attachments/HLAttachmentManager.ts'
 import { HLRuntime, type HLRuntimeOptions } from './transport/HLTransport.ts'
 import { HLSQLiteStore, HLMacKeychainSecretStore, type HLSecretStore } from './storage/HLStorage.ts'
 import { createNotificationService, type HLNotificationImport } from './notifications/HLNotifications.ts'
+import { HLPersonalRuntime } from './personal/HLPersonalRuntime.ts'
+import { HL_PERSONAL_WEB_METHODS } from './personal/transport/HLPersonalAPI.ts'
+import type { HLPersonalDSHHost } from './personal/dsh/HLDSHHost.ts'
+import { HLError } from './transport/HLError.ts'
 
 export const name = 'dsh-mobile-access'
 export const inject = ['connection', 'typertGateway']
@@ -48,6 +52,7 @@ export interface HLHostContext extends HLDSHHostServices {
   effect(effect: () => (() => void | Promise<void>)): unknown
   on(name: 'session/event', handler: (session: { id: string }, event: { type: string; seq: number; data: Record<string, unknown> }) => void, options: { global: true }): unknown
   logger: { warn(...args: unknown[]): void; info?(...args: unknown[]): void }
+  inject?(services: string[], callback: (host: HLPersonalDSHHost) => void | Promise<void>): unknown
 }
 
 type HLRuntimeSurface = Pick<HLRuntime, 'status' | 'start' | 'stop' | 'createInvitation' | 'approve' | 'reject' | 'revoke' | 'listDevices' | 'broadcastPushConfigurationChanged'>
@@ -56,6 +61,7 @@ export interface HLPluginDependencies {
   createStore?: (path: string) => HLSQLiteStore
   createSecretStore?: (profileKey: string) => HLSecretStore
   createRuntime?: (options: HLRuntimeOptions) => HLRuntimeSurface
+  createPersonalRuntime?: (options: ConstructorParameters<typeof HLPersonalRuntime>[0]) => HLPersonalRuntime
 }
 
 /** Install the mobile endpoint in an existing Web/Desktop profile; no additional server. */
@@ -65,7 +71,7 @@ export async function apply(ctx: HLHostContext, config: HLConfig): Promise<void>
 
 export async function applyWithDependencies(ctx: HLHostContext, config: HLConfig, dependencies: HLPluginDependencies = {}): Promise<void> {
   if (process.platform !== 'darwin' || process.arch !== 'arm64') {
-    throw new Error('Harness Link 0.1 supports macOS Apple Silicon hosts')
+    throw new Error('Harness Link supports macOS Apple Silicon hosts')
   }
   const baseUrl = ctx.root.baseUrl
   if (!config.dataDirectory && (!baseUrl || !baseUrl.startsWith('file:'))) {
@@ -99,7 +105,18 @@ export async function applyWithDependencies(ctx: HLHostContext, config: HLConfig
   ctx.effect(() => dispose)
   try {
   const secrets = dependencies.createSecretStore?.(profileKey) ?? new HLMacKeychainSecretStore('io.github.gongshichen.dsh-mobile', profileKey)
-  const bridge = new HLDSHBridge(ctx)
+  let personal: HLPersonalRuntime | undefined
+  if (ctx.inject) {
+    try {
+      const personalOptions: ConstructorParameters<typeof HLPersonalRuntime>[0] = { directory: join(directory, 'personal'), secrets,
+        scopeEntry: new URL('./HLPersonalScope.js', import.meta.url).href,
+        diagnostic: (event, detail) => ctx.logger.info?.(`[personal] ${event} ${detail}`),
+        attention: (noticeId, sessionId, kind) => { if (!closing) notifications.enqueue({ eventId: `personal:${noticeId}`, sessionId, kind }) } }
+      personal = dependencies.createPersonalRuntime?.(personalOptions) ?? new HLPersonalRuntime(personalOptions)
+      disposers.push(() => personal!.stop())
+    } catch { ctx.logger.warn('Personal Agent storage is unavailable; mobile access remains active') }
+  }
+  const bridge = new HLDSHBridge(ctx, personal?.api)
   disposers.push(() => bridge.dispose())
   const attachments = new HLAttachmentManager({ directory: join(directory, 'attachments'), maxFileBytes: config.maxFileBytes,
     maxDeviceBytes: config.maxDeviceBytes, ttlMs: config.uploadTtlMs }, bridge)
@@ -110,11 +127,21 @@ export async function applyWithDependencies(ctx: HLHostContext, config: HLConfig
   const runtimeOptions: HLRuntimeOptions = { store, secretStore: secrets, bridge, attachments, notifications,
     hostName: config.hostName, dshVersion: SUPPORTED_DSH_VERSION, invitationTtlMs: config.invitationTtlMs,
     maxConnections: config.maxConnections, maxSubscriptions: config.maxSubscriptions,
+    extraCapabilities: personal ? ['personal-agent-v1'] : [],
+    onDeviceRevoked: deviceId => personal?.framework.revokeDevice(deviceId),
     onError: code => ctx.logger.warn('Mobile connection:', code),
     onDiagnostic: (event, detail) => ctx.logger.info?.(`[mobile] ${event} ${detail}`),
   }
   runtime = dependencies.createRuntime?.(runtimeOptions) ?? new HLRuntime(runtimeOptions)
   disposers.push(() => runtime.stop())
+  if (personal) disposers.push(() => personal!.stop())
+  if (personal && ctx.inject) {
+    const feature = personal
+    ctx.inject(['agents', 'sessions', 'sessionQuery', 'agentPresets', 'tools', 'systemPrompt'], host => {
+      // Preset diagnostics may await the Loader: do not make this injected fiber await itself.
+      void feature.attach(host).catch(() => ctx.logger.warn('Personal Agent Host adapter is unavailable; mobile access remains active'))
+    })
+  }
   const pendingNotifications = new Map<string, ReturnType<typeof setTimeout>>()
   const cleanup = setInterval(() => { void attachments.expire().catch(() => ctx.logger.warn('Mobile attachment cleanup failed')) }, 60_000)
   cleanup.unref()
@@ -182,8 +209,45 @@ export async function applyWithDependencies(ctx: HLHostContext, config: HLConfig
     disposers.push(remove)
   }
 
+  if (personal) for (const method of HL_PERSONAL_WEB_METHODS) {
+    const endpoint = `personalAccess/${method}`
+    const feature = personal
+    const handle = async (request: Request): Promise<Response> => {
+      if (closing) return new Response(null, { status: 503 })
+      const admission = ctx.connection.admit(request)
+      if ('rejection' in admission) return new Response(null, { status: admission.rejection })
+      if (admission.peer !== ctx.connection.browserPeer) return new Response(null, { status: 403 })
+      let input: Record<string, unknown>
+      try {
+        input = object(await request.json())
+        if (input.type !== 'client-request' || input.method !== endpoint || typeof input.rpcId !== 'string') throw new Error('Invalid envelope')
+      } catch { return Response.json({ error: 'Invalid RPC envelope' }, { status: 400 }) }
+      let result: HLRPCResult
+      try {
+        const value = await feature.api.invoke(`personal.${method}`, input.payload ?? {}, { deviceId: 'desktop-owner', desktop: true }, request.signal)
+        result = { ok: true, value }
+      } catch (error) { result = failure(error instanceof HLError ? error.code : 'PERSONAL_UNAVAILABLE', error instanceof HLError ? error.message : '私人助理操作未完成，请刷新后重试') }
+      return Response.json({ type: 'server-response', rpcId: input.rpcId, result })
+    }
+    const remove = ctx.connection.fetch.register({ path: `/api/${endpoint}`, methods: ['POST'], requestBody: 'buffered', fetch: request => {
+      const work = handle(request).finally(() => activeManagement.delete(work)); activeManagement.add(work); return work
+    } })
+    disposers.push(remove)
+  }
+
   ctx.on('session/event', (session, event) => {
     if (closing) return
+    if (personal) {
+      try { personal.framework.observe(session.id, event) } catch { ctx.logger.warn('Personal Agent event projection failed') }
+      const role = personal.framework.role(session.id)
+      if (role === 'assistant') {
+        const question = event.type === 'tool/call' && event.data.name === 'ask_user_question'
+        if (event.type === 'approval/asked' || question) {
+          notifications.enqueue({ eventId: `personal:main:${session.id}:${event.seq}`, sessionId: session.id, kind: 'approval' })
+        }
+      }
+      if (role || personal.framework.delegatedSession(session.id)) return
+    }
     const prefix = `${runtime.status().endpointId}:${session.id}`
     if (event.type === 'approval/asked' && typeof event.data.id === 'string') {
       const eventId = `${prefix}:approval:${event.data.id}`

@@ -45,6 +45,8 @@ export interface HLRuntimeOptions {
   invitationTtlMs?: number
   maxConnections?: number
   maxSubscriptions?: number
+  extraCapabilities?: readonly string[]
+  onDeviceRevoked?(deviceId: string): void | Promise<void>
   /** Local-only binding is for encrypted integration tests, not a production fallback. */
   endpointFactory?: (secret: Uint8Array) => Promise<Endpoint>
   onStateChange?: () => void
@@ -159,6 +161,7 @@ export class HLRuntime {
     await Promise.allSettled(states.flatMap(state => [...state.tasks, ...state.background]))
     await this.options.attachments.revokeDevice(deviceId)
     await this.options.notifications?.revokeDevice(deviceId)
+    await this.options.onDeviceRevoked?.(deviceId)
     this.changed()
   }
 
@@ -310,7 +313,7 @@ export class HLRuntime {
     if (method === 'hello') {
       const authorized = this.pairing.device(state.deviceId) !== undefined
       if (authorized) await this.authorize(state)
-      return { protocolVersion: 1, authorized, hostId: this.endpoint?.id().toString(), hostInstanceId: this.instanceId, hostName: this.options.hostName, dshVersion: this.options.dshVersion, adapterVersion: this.options.adapterVersion ?? '0.1.3', capabilities: authorized ? ['sessions', 'workspaces', 'models', 'files', 'attachments', 'interactions', 'interaction-waits', 'jobs', 'push', 'feedback', 'changes', 'permissions'] : [] }
+      return { protocolVersion: 1, authorized, hostId: this.endpoint?.id().toString(), hostInstanceId: this.instanceId, hostName: this.options.hostName, dshVersion: this.options.dshVersion, adapterVersion: this.options.adapterVersion ?? '0.2.0-alpha.1', capabilities: authorized ? ['sessions', 'workspaces', 'models', 'files', 'attachments', 'interactions', 'interaction-waits', 'jobs', 'push', 'feedback', 'changes', 'permissions', ...this.options.extraCapabilities ?? []] : [] }
     }
     if (method === 'pairing.request') {
       const platform = stringField(params, 'platform')

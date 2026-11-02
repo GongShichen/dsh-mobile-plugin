@@ -7,6 +7,7 @@ import { HLInteractionChannel, validateQuestionAnswer } from '../sync/HLInteract
 import { readChanges } from './HLChanges.ts'
 import { permissionCatalog, permissionSelection } from './HLPermissions.ts'
 import { permissionCatalogStream } from '../sync/HLPermissionCatalogStream.ts'
+import type { HLPersonalAPI } from '../personal/transport/HLPersonalAPI.js'
 
 export type { HLDSHHostServices, HLPeer, HLPeerScope, HLParams } from './HLBridgeTypes.ts'
 export { HLBridgeError } from './HLBridgeError.ts'
@@ -31,7 +32,7 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
   }
   private readonly sharedFetch: HLSharedFetch<S>
 
-  constructor(private readonly host: HLDSHHostServices<S>) {
+  constructor(private readonly host: HLDSHHostServices<S>, private readonly personal?: HLPersonalAPI) {
     this.sharedFetch = host.connection.createSharedFetchHandler('/api')
   }
 
@@ -71,6 +72,10 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
   /** Preserve named Gateway arguments while removing only adapter operation metadata. */
   async invoke(peer: HLPeer<S>, method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
     this.signal(peer, signal).throwIfAborted()
+    if (method.startsWith('personal.')) {
+      if (!this.personal) throw new HLBridgeError('personal/unavailable', '此桌面暂未启用私人助理')
+      return this.personal.invoke(method, params, { deviceId: peer.deviceId, desktop: false }, this.signal(peer, signal))
+    }
     const { operationId: _operationId, ...request } = paramsOf(params)
     const [domain, action, extra] = method.split('.')
     if (extra !== undefined) throw new HLBridgeError('mobile/method-not-found', 'Unknown mobile method')
@@ -213,6 +218,10 @@ export class HLDSHBridge<S extends HLPeerScope = HLPeerScope> {
     const request = paramsOf(params)
     try {
       switch (topic) {
+        case 'personal':
+          if (!this.personal) throw new HLBridgeError('personal/unavailable', '此桌面暂未启用私人助理')
+          yield* this.personal.follow(lifetime)
+          break
         case 'permissions':
           yield* permissionCatalogStream(this.interactionChannel(peer).subscribe(false, lifetime), () => this.invoke(peer, 'permissions.catalog', {}, lifetime), lifetime)
           break

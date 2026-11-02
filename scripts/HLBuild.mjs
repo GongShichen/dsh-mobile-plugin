@@ -1,5 +1,7 @@
 import { build } from 'esbuild'
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 await rm(new URL('../dist/', import.meta.url), { recursive: true, force: true })
@@ -8,6 +10,13 @@ await build({
   entryPoints: ['src/HLPlugin.ts'], outfile: 'dist/HLPlugin.js', bundle: true,
   platform: 'node', format: 'esm', target: 'node24', packages: 'external', sourcemap: true,
 })
+await build({ entryPoints: ['src/personal/HLPersonalScope.ts'], outfile: 'dist/HLPersonalScope.js', bundle: true,
+  platform: 'node', format: 'esm', target: 'node24', packages: 'external' })
+await build({ entryPoints: ['src/personal/HLPersonal.ts'], outfile: 'dist/HLPersonal.js', bundle: true,
+  platform: 'node', format: 'esm', target: 'node24', packages: 'external' })
+const require = createRequire(import.meta.url)
+const declarations = spawnSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.personal.json'], { stdio: 'inherit' })
+if (declarations.status !== 0) throw new Error('Personal framework type declaration build failed')
 const browser = await build({
   entryPoints: ['src/client/HLClient.ts'], bundle: true, write: false,
   platform: 'browser', format: 'cjs', target: 'es2022', jsx: 'automatic',

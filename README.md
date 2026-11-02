@@ -4,7 +4,7 @@
 
 [![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple%20Silicon-595959.svg)](#安装) [![License: MIT](https://img.shields.io/badge/License-MIT-595959.svg)](LICENSE)
 
-**[下载安装包](https://github.com/GongShichen/dsh-mobile-plugin/releases/tag/v0.1.3) · [安装](#安装) · [连接手机](#连接手机) · [手机通知](#手机通知) · [协议](protocol/PROTOCOL.md)**
+**[下载安装包](https://github.com/GongShichen/dsh-mobile-plugin/releases/tag/v0.1.3) · [安装](#安装) · [连接手机](#连接手机) · [手机通知](#手机通知)**
 
 <img src="assets/HLBanner.webp" alt="Harness Link Plugin — Pair your phone. Keep your agent on your Mac." width="100%">
 
@@ -51,6 +51,17 @@ npx @deepseek-ai/dsh@0.2.2-alpha.2 web
 
 `permissions` 能力将手机选择交给官方 `/permission` 命令，仅改变当前会话。权限目录随桌面贡献动态刷新；上下文、Token / 缓存和会话统计复用官方投影，不在手机重新统计历史。
 
+## 私人助理 · 0.2.0 源码预览
+
+顶部切换普通会话和私人助理，一位长期助理可管理多个目标、阶段成果与独立事务。可在已有工作区创建真实会话，或委托继续原会话；手机、Web 和桌面查看同一份执行结果。记忆可修改或遗忘，时间规则与指定邮件 / 日历变化可唤醒后续工作。
+
+这一能力需要插件与移动端均为 `0.2.0-alpha.1` 或更新版本；上方已发布的 0.1.x 安装包不包含私人助理。默认两个执行槽，业务记录在本 profile 的独立 SQLite，手机只保留内存视图。
+
+Google Calendar 和 Gmail 为可选能力，由需要的用户自行配置。使用自己的 Google Cloud 项目启用 Gmail / Calendar API，配置 OAuth 同意屏幕，在测试状态下添加自己的测试账号，再创建“桌面应用”OAuth 客户端并下载 JSON。在 **私人助理 → 账户** 导入 JSON，随后点击“连接 Google 账户”。不需要重新编译或部署独立授权服务。
+
+OAuth 配置和账户 token 保存在当前桌面 profile 的 macOS Keychain，安装包不包含预置客户端凭据，手机不接收这些凭据。更换或移除配置前先断开账户；未配置 Google 时，目标、事务、工作区委托、记忆和时间规则照常可用。邮件与日历写入仍需任务范围授权。Google 测试应用的离线授权可能需要定期重新登录，详见 [Google OAuth 指南](https://developers.google.com/identity/protocols/oauth2/native-app)。
+
+
 ## 连接与数据
 
 **无需自建服务器。** 插件直接嵌入 iroh，优先建立直连；直连不可达时使用公共端到端加密中继。它不要求开放 DSH 公网监听端口，也不把 DSH 启动 token 或模型 API key 交给手机。
@@ -72,7 +83,7 @@ Mac 必须保持唤醒，DSH 必须运行。手机进入后台后，系统可以
 
 服务端私钥留在 Mac。通知不包含对话正文；“服务已接收”和“手机已确认”分别展示。无 GMS、通知权限关闭或 Mac 离线、休眠时，后台提醒可能不可用。通知不承担会话同步。
 
-## 开发与验证
+## 开发
 
 从源码构建安装包：
 
@@ -80,7 +91,7 @@ Mac 必须保持唤醒，DSH 必须运行。手机进入后台后，系统可以
 git clone https://github.com/GongShichen/dsh-mobile-plugin.git
 cd dsh-mobile-plugin
 npx --yes pnpm@11.28.5 install --frozen-lockfile
-npx --yes pnpm@11.28.5 pack --out dsh-mobile-plugin-0.1.3.tgz
+npx --yes pnpm@11.28.5 pack --out dsh-mobile-plugin-0.2.0-alpha.1.tgz
 ```
 
 `pack` 会先执行发布构建，再打包。完整检查可运行：
@@ -91,12 +102,10 @@ npx --yes pnpm@11.28.5 check
 
 [CI](https://github.com/GongShichen/dsh-mobile-plugin/actions/workflows/check.yml) 运行 TypeScript、行为测试和发布构建。iroh 测试覆盖真实本机加密连接、配对门禁、RPC、事件流、二进制传输、重连和设备撤销。
 
-实际 DSH 集成 fixture 与原生回归脚本使用隔离 profile，不读取用户模型凭据。APNs / FCM 单元测试使用可控 transport；真机推送和跨网络可达性分别验收。
 
 - [src/bridge](src/bridge) 与 [src/sync](src/sync)：固定移动能力白名单，复用官方 Gateway / Connection Fetch。
 - [src/transport](src/transport)、[src/pairing](src/pairing) 与 [src/storage](src/storage)：P2P、身份、设备授权和操作账本。
 - [src/attachments](src/attachments)、[src/notifications](src/notifications) 与 [src/client](src/client)：附件、通知和官方 UI slots 扩展。
-- [protocol/PROTOCOL.md](protocol/PROTOCOL.md)：共享协议、同步与交互语义；[scripts](scripts) 中的 Android / iOS QA 控制脚本支持 `--only changes` 文件改动回归。
 
 源码开发可在构建后使用 `plugin --profile web add /absolute/path/to/dsh-mobile-plugin` 安装目录，再重启该 profile。
 

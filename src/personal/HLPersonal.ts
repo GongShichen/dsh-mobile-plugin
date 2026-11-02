@@ -1,0 +1,13 @@
+/** Public Personal Agent framework and extension ports. Host services are adapters, not dependencies. */
+export { HLPersonalFramework } from './core/HLPersonalFramework.js'
+export type { HLPersonalFrameworkOptions, HLPersonalActor } from './core/HLPersonalFramework.js'
+export { HLPersonalError } from './core/HLPersonalValidation.js'
+export { HLConnectorRegistry } from './connectors/HLConnectorRegistry.js'
+export type * from './core/HLPersonalTypes.js'
+export type * from './ports/HLAgentExecutionPort.js'
+export type * from './ports/HLSchedulePort.js'
+export type * from './ports/HLConnectorPort.js'
+export type * from './ports/HLPersonalPersistence.js'
+export type * from './ports/HLPersonalTriggerSource.js'
+export type * from './ports/HLPersonalCompletionVerifier.js'
+export type * from './ports/HLDSHDelegationPort.js'

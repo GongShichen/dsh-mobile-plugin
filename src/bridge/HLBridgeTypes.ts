@@ -23,7 +23,7 @@ export interface HLSharedFetch<S extends HLPeerScope> {
 
 export interface HLDSHHostServices<S extends HLPeerScope = HLPeerScope> {
   readonly connection: {
-    createPeer(options: { principal: { kind: 'owner' }; interactions: 'answer' }): S
+    createPeer(options: { principal: { kind: 'owner' }; interactions: 'answer' | 'none' }): S
     createSharedFetchHandler(channel: '/api'): HLSharedFetch<S>
   }
   readonly typertGateway: {
